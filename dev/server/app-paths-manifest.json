@@ -1,0 +1,10 @@
+{
+  "/(protected)/actualizacion-masiva/page": "app/(protected)/actualizacion-masiva/page.js",
+  "/(protected)/dashboard/page": "app/(protected)/dashboard/page.js",
+  "/(protected)/productos/escaner/page": "app/(protected)/productos/escaner/page.js",
+  "/(protected)/productos/page": "app/(protected)/productos/page.js",
+  "/(protected)/reportes/page": "app/(protected)/reportes/page.js",
+  "/(protected)/ventas/nueva/page": "app/(protected)/ventas/nueva/page.js",
+  "/auth/callback/page": "app/auth/callback/page.js",
+  "/login/page": "app/login/page.js"
+}
