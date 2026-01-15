@@ -258,7 +258,7 @@ async def listar_productos(
     }
 
 @app.get("/productos/{producto_id}", response_model=ProductoResponse, tags=["Productos"])
-async def obtener_producto(producto_id: int, db: Session = Depends(get_db)):
+async def obtener_producto(producto_id: str, db: Session = Depends(get_db)):
     """Obtiene un producto específico por ID"""
     producto = ProductoService.get_producto(db, producto_id)
     if not producto:
@@ -313,8 +313,8 @@ async def crear_producto(producto: ProductoCreate, db: Session = Depends(get_db)
 
 @app.put("/productos/{producto_id}", response_model=ProductoResponse, tags=["Productos"])
 async def actualizar_producto(
-    producto_id: int, 
-    producto_update: ProductoUpdate, 
+    producto_id: str,
+    producto_update: ProductoUpdate,
     db: Session = Depends(get_db)
 ):
     """Actualiza un producto existente"""
@@ -324,7 +324,7 @@ async def actualizar_producto(
     return producto
 
 @app.delete("/productos/{producto_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Productos"])
-async def eliminar_producto(producto_id: int, db: Session = Depends(get_db)):
+async def eliminar_producto(producto_id: str, db: Session = Depends(get_db)):
     """Elimina un producto"""
     success = ProductoService.delete_producto(db, producto_id)
     if not success:
@@ -436,45 +436,24 @@ async def obtener_reportes(db: Session = Depends(get_db)):
 
     Incluye:
     - Valuacion de inventario
-    - Rentabilidad
-    - Alertas (margenes negativos, sin precio)
+    - Alertas (sin precio)
     - Performance por categoria
+
+    Nota: costo_compra no disponible en esquema actual
     """
     from models import Producto
 
     # Get all products
     productos = db.query(Producto).all()
 
-    # Calculate valuation
-    total_costo_inventario = sum(p.costo_compra for p in productos)
-    total_valor_minorista = sum(p.precio_menor for p in productos)
-    total_valor_mayorista = sum(p.precio_mayor for p in productos)
-    ganancia_potencial_minorista = total_valor_minorista - total_costo_inventario
-    ganancia_potencial_mayorista = total_valor_mayorista - total_costo_inventario
-
-    # Calculate profitability (average margins)
-    margenes_minorista = []
-    margenes_mayorista = []
-    for p in productos:
-        if p.costo_compra > 0:
-            margen_min = ((p.precio_menor - p.costo_compra) / p.costo_compra) * 100
-            margen_may = ((p.precio_mayor - p.costo_compra) / p.costo_compra) * 100
-            margenes_minorista.append(margen_min)
-            margenes_mayorista.append(margen_may)
-
-    margen_promedio_minorista = sum(margenes_minorista) / len(margenes_minorista) if margenes_minorista else 0
-    margen_promedio_mayorista = sum(margenes_mayorista) / len(margenes_mayorista) if margenes_mayorista else 0
-
-    # Alerts - products with negative margin (selling below cost)
-    productos_margen_negativo = [
-        p.to_dict() for p in productos
-        if p.costo_compra > 0 and p.precio_menor < p.costo_compra
-    ]
+    # Calculate valuation usando propiedades float
+    total_valor_minorista = sum(p.precio_menor_float for p in productos)
+    total_valor_mayorista = sum(p.precio_mayor_float for p in productos)
 
     # Alerts - products without prices
     productos_sin_precio = [
         p.to_dict() for p in productos
-        if p.precio_menor == 0 or p.precio_mayor == 0
+        if p.precio_menor_float == 0 or p.precio_mayor_float == 0
     ]
 
     # Category performance
@@ -485,41 +464,23 @@ async def obtener_reportes(db: Session = Depends(get_db)):
             categorias[cat] = {
                 "categoria": cat,
                 "total_items": 0,
-                "total_costo": 0,
                 "total_valor_menor": 0,
                 "total_valor_mayor": 0,
-                "margenes_menor": [],
-                "margenes_mayor": []
             }
         categorias[cat]["total_items"] += 1
-        categorias[cat]["total_costo"] += p.costo_compra
-        categorias[cat]["total_valor_menor"] += p.precio_menor
-        categorias[cat]["total_valor_mayor"] += p.precio_mayor
-
-        if p.costo_compra > 0:
-            categorias[cat]["margenes_menor"].append(
-                ((p.precio_menor - p.costo_compra) / p.costo_compra) * 100
-            )
-            categorias[cat]["margenes_mayor"].append(
-                ((p.precio_mayor - p.costo_compra) / p.costo_compra) * 100
-            )
+        categorias[cat]["total_valor_menor"] += p.precio_menor_float
+        categorias[cat]["total_valor_mayor"] += p.precio_mayor_float
 
     categoria_performance = []
     for cat_data in categorias.values():
         categoria_performance.append({
             "categoria": cat_data["categoria"],
             "total_items": cat_data["total_items"],
-            "total_costo": round(cat_data["total_costo"], 2),
+            "total_costo": 0,  # No disponible
             "total_valor_menor": round(cat_data["total_valor_menor"], 2),
             "total_valor_mayor": round(cat_data["total_valor_mayor"], 2),
-            "margen_promedio_menor": round(
-                sum(cat_data["margenes_menor"]) / len(cat_data["margenes_menor"])
-                if cat_data["margenes_menor"] else 0, 2
-            ),
-            "margen_promedio_mayor": round(
-                sum(cat_data["margenes_mayor"]) / len(cat_data["margenes_mayor"])
-                if cat_data["margenes_mayor"] else 0, 2
-            )
+            "margen_promedio_menor": 0,  # No disponible sin costo
+            "margen_promedio_mayor": 0   # No disponible sin costo
         })
 
     # Sort by total items (most products first)
@@ -527,20 +488,20 @@ async def obtener_reportes(db: Session = Depends(get_db)):
 
     return {
         "valuacion": {
-            "total_costo_inventario": round(total_costo_inventario, 2),
+            "total_costo_inventario": 0,  # No disponible
             "total_valor_minorista": round(total_valor_minorista, 2),
             "total_valor_mayorista": round(total_valor_mayorista, 2),
-            "ganancia_potencial_minorista": round(ganancia_potencial_minorista, 2),
-            "ganancia_potencial_mayorista": round(ganancia_potencial_mayorista, 2)
+            "ganancia_potencial_minorista": 0,  # No disponible sin costo
+            "ganancia_potencial_mayorista": 0   # No disponible sin costo
         },
         "rentabilidad": {
-            "margen_promedio_minorista": round(margen_promedio_minorista, 2),
-            "margen_promedio_mayorista": round(margen_promedio_mayorista, 2)
+            "margen_promedio_minorista": 0,  # No disponible sin costo
+            "margen_promedio_mayorista": 0   # No disponible sin costo
         },
         "alertas": {
-            "productos_margen_negativo": productos_margen_negativo[:20],  # Limit to 20
-            "productos_sin_precio": productos_sin_precio[:20],  # Limit to 20
-            "total_margen_negativo": len(productos_margen_negativo),
+            "productos_margen_negativo": [],  # No disponible sin costo
+            "productos_sin_precio": productos_sin_precio[:20],
+            "total_margen_negativo": 0,
             "total_sin_precio": len(productos_sin_precio)
         },
         "categoria_performance": categoria_performance
@@ -624,7 +585,7 @@ async def estadisticas_ventas(db: Session = Depends(get_db)):
 
 @app.patch("/productos/{producto_id}/codigo-barra", response_model=ProductoResponse, tags=["Productos"])
 async def actualizar_codigo_barra(
-    producto_id: int,
+    producto_id: str,
     data: CodigoBarraUpdate,
     db: Session = Depends(get_db)
 ):
@@ -638,14 +599,13 @@ async def actualizar_codigo_barra(
 
     # Verificar que el codigo de barras no este en uso por otro producto
     existing = ProductoService.get_producto_by_codigo_barra(db, data.codigo_barra)
-    if existing and existing.id != producto_id:
+    if existing and existing.codigo != producto_id:
         raise HTTPException(
             status_code=400,
             detail=f"El codigo de barras ya esta asignado al producto: {existing.producto}"
         )
 
     # Actualizar usando el servicio existente
-    from schemas import ProductoUpdate
     update_data = ProductoUpdate(codigo_barra=data.codigo_barra)
     producto_actualizado = ProductoService.update_producto(db, producto_id, update_data)
 

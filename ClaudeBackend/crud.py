@@ -8,9 +8,9 @@ from datetime import date, datetime
 class ProductoService:
     
     @staticmethod
-    def get_producto(db: Session, producto_id: int) -> Optional[Producto]:
-        """Obtiene un producto por ID"""
-        return db.query(Producto).filter(Producto.id == producto_id).first()
+    def get_producto(db: Session, producto_id) -> Optional[Producto]:
+        """Obtiene un producto por ID (codigo)"""
+        return db.query(Producto).filter(Producto.codigo == str(producto_id)).first()
     
     @staticmethod
     def get_producto_by_codigo(db: Session, codigo: str) -> Optional[Producto]:
@@ -77,34 +77,42 @@ class ProductoService:
     @staticmethod
     def create_producto(db: Session, producto: ProductoCreate) -> Producto:
         """Crea un nuevo producto"""
-        db_producto = Producto(**producto.model_dump())
-        db_producto.ultima_actualizacion = date.today()
+        data = producto.model_dump()
+        # Campos válidos en Supabase
+        valid_fields = {'codigo', 'producto', 'categoria', 'precio_menor', 'precio_mayor', 'unidad', 'codigo_barra', 'ultima_actualizacion'}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        # Establecer fecha de actualización
+        filtered_data['ultima_actualizacion'] = str(date.today())
+        db_producto = Producto(**filtered_data)
         db.add(db_producto)
         db.commit()
         db.refresh(db_producto)
         return db_producto
     
     @staticmethod
-    def update_producto(db: Session, producto_id: int, producto_update: ProductoUpdate) -> Optional[Producto]:
+    def update_producto(db: Session, producto_id, producto_update: ProductoUpdate) -> Optional[Producto]:
         """Actualiza un producto existente"""
-        db_producto = db.query(Producto).filter(Producto.id == producto_id).first()
+        db_producto = db.query(Producto).filter(Producto.codigo == str(producto_id)).first()
         if not db_producto:
             return None
-        
+
         # Actualizar solo los campos proporcionados
         update_data = producto_update.model_dump(exclude_unset=True)
+        valid_fields = {'producto', 'categoria', 'precio_menor', 'precio_mayor', 'unidad', 'codigo_barra'}
         for key, value in update_data.items():
-            setattr(db_producto, key, value)
-        
-        db_producto.ultima_actualizacion = date.today()
+            if key in valid_fields:
+                setattr(db_producto, key, value)
+
+        # Actualizar fecha
+        db_producto.ultima_actualizacion = str(date.today())
         db.commit()
         db.refresh(db_producto)
         return db_producto
     
     @staticmethod
-    def delete_producto(db: Session, producto_id: int) -> bool:
+    def delete_producto(db: Session, producto_id) -> bool:
         """Elimina un producto"""
-        db_producto = db.query(Producto).filter(Producto.id == producto_id).first()
+        db_producto = db.query(Producto).filter(Producto.codigo == str(producto_id)).first()
         if not db_producto:
             return False
         db.delete(db_producto)
@@ -126,16 +134,18 @@ class ProductoService:
         
         productos = query.all()
         factor = 1 + (actualizacion.porcentaje / 100)
-        
+
         count = 0
         for producto in productos:
             if actualizacion.aplicar_a in ["menor", "ambos"]:
-                producto.precio_menor = round(producto.precio_menor * factor, 2)
+                nuevo_precio = round(producto.precio_menor_float * factor, 2)
+                producto.precio_menor = str(nuevo_precio)
             if actualizacion.aplicar_a in ["mayor", "ambos"]:
-                producto.precio_mayor = round(producto.precio_mayor * factor, 2)
-            producto.ultima_actualizacion = date.today()
+                nuevo_precio = round(producto.precio_mayor_float * factor, 2)
+                producto.precio_mayor = str(nuevo_precio)
+            producto.ultima_actualizacion = str(date.today())
             count += 1
-        
+
         db.commit()
         return count
     
@@ -143,38 +153,45 @@ class ProductoService:
     def get_estadisticas(db: Session) -> dict:
         """Obtiene estadísticas generales"""
         total = db.query(Producto).count()
-        
+
         # Productos por categoría
         categorias = db.query(
             Producto.categoria,
-            func.count(Producto.id)
+            func.count(Producto.codigo)
         ).group_by(Producto.categoria).all()
-        
+
         productos_por_categoria = {cat: count for cat, count in categorias}
-        
-        # Productos sin precio
+
+        # Productos sin precio (precio_menor es String, comparar con '0' o vacío)
         sin_precio = db.query(Producto).filter(
-            (Producto.precio_menor == 0) | (Producto.precio_mayor == 0)
+            (Producto.precio_menor == None) |
+            (Producto.precio_menor == '') |
+            (Producto.precio_menor == '0') |
+            (Producto.precio_mayor == None) |
+            (Producto.precio_mayor == '') |
+            (Producto.precio_mayor == '0')
         ).count()
-        
+
         # Productos sin código de barras
         sin_codigo_barra = db.query(Producto).filter(
             (Producto.codigo_barra == None) | (Producto.codigo_barra == "")
         ).count()
-        
-        # Promedios
-        promedios = db.query(
-            func.avg(Producto.precio_menor),
-            func.avg(Producto.precio_mayor)
-        ).first()
-        
+
+        # Promedios - obtener todos los productos y calcular en Python
+        productos = db.query(Producto).all()
+        precios_menor = [p.precio_menor_float for p in productos if p.precio_menor_float > 0]
+        precios_mayor = [p.precio_mayor_float for p in productos if p.precio_mayor_float > 0]
+
+        promedio_menor = sum(precios_menor) / len(precios_menor) if precios_menor else 0
+        promedio_mayor = sum(precios_mayor) / len(precios_mayor) if precios_mayor else 0
+
         return {
             "total_productos": total,
             "productos_por_categoria": productos_por_categoria,
             "productos_sin_precio": sin_precio,
             "productos_sin_codigo_barra": sin_codigo_barra,
-            "promedio_precio_menor": round(promedios[0] or 0, 2),
-            "promedio_precio_mayor": round(promedios[1] or 0, 2)
+            "promedio_precio_menor": round(promedio_menor, 2),
+            "promedio_precio_mayor": round(promedio_mayor, 2)
         }
 
 
@@ -253,19 +270,19 @@ class VentaService:
 
         total = 0.0
         for item in venta_data.items:
-            # Obtener el producto
-            producto = db.query(Producto).filter(Producto.id == item.producto_id).first()
+            # Obtener el producto por codigo
+            producto = db.query(Producto).filter(Producto.codigo == str(item.producto_id)).first()
             if not producto:
-                raise ValueError(f"Producto con ID {item.producto_id} no encontrado")
+                raise ValueError(f"Producto con código {item.producto_id} no encontrado")
 
-            # Determinar precio segun tipo de venta
-            precio_unitario = producto.precio_mayor if venta_data.tipo_venta == "Mayorista" else producto.precio_menor
+            # Determinar precio segun tipo de venta (usar propiedades float)
+            precio_unitario = producto.precio_mayor_float if venta_data.tipo_venta == "Mayorista" else producto.precio_menor_float
             subtotal = precio_unitario * item.cantidad
 
             # Crear detalle
             detalle = DetalleVenta(
                 venta_id=venta.id,
-                producto_id=producto.id,
+                producto_codigo=producto.codigo,
                 codigo_producto=producto.codigo,
                 nombre_producto=producto.producto,
                 cantidad=item.cantidad,

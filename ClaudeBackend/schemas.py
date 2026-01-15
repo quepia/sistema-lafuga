@@ -25,9 +25,9 @@ class ProductoUpdate(BaseModel):
     codigo_barra: Optional[str] = None
 
 class ProductoResponse(ProductoBase):
-    id: int
-    ultima_actualizacion: Optional[date]
-    diferencia_porcentual: float
+    id: str  # Ahora es el codigo (PK)
+    ultima_actualizacion: Optional[date] = None
+    diferencia_porcentual: float = 0.0
 
     class Config:
         from_attributes = True
@@ -77,7 +77,7 @@ class Token(BaseModel):
 
 class DetalleVentaItem(BaseModel):
     """Item individual para crear una venta"""
-    producto_id: int
+    producto_id: str  # Codigo del producto
     cantidad: float = Field(gt=0)
 
 
@@ -93,7 +93,7 @@ class DetalleVentaResponse(BaseModel):
     """Respuesta de un detalle de venta"""
     id: int
     venta_id: int
-    producto_id: Optional[int]
+    producto_id: Optional[str]  # Codigo del producto
     codigo_producto: str
     nombre_producto: str
     cantidad: float

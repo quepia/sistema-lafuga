@@ -31,32 +31,58 @@ class User(Base):
 class Producto(Base):
     __tablename__ = "productos"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    codigo = Column(String, unique=True, index=True, nullable=False)
-    producto = Column(String, nullable=False, index=True)
-    categoria = Column(String, index=True, nullable=False)
-    precio_menor = Column(Float, nullable=False, default=0.0)
-    precio_mayor = Column(Float, nullable=False, default=0.0)
-    costo_compra = Column(Float, nullable=False, default=0.0)
-    unidad = Column(String)
-    codigo_barra = Column(String, index=True)
-    ultima_actualizacion = Column(Date, default=date.today)
+    # Mapeo exacto a columnas de Supabase (nombres en mayúsculas)
+    codigo = Column("CÓDIGO", String, primary_key=True, index=True)
+    producto = Column("PRODUCTO", String, nullable=False, index=True)
+    categoria = Column("CATEGORIA", String, index=True, nullable=False)
+    precio_menor = Column("PRECIO_MENOR", String, nullable=True)  # String por formato '1,600.00'
+    precio_mayor = Column("PRECIO_MAYOR", String, nullable=True)  # String por formato '1,600.00'
+    unidad = Column("UNIDAD", String, nullable=True)
+    codigo_barra = Column("CODIGO_BARRA", String, nullable=True, index=True)
+    ultima_actualizacion = Column("ULTIMA_ACTUALIZACION", String, nullable=True)
+
+    # Propiedad para compatibilidad con código existente que usa "id"
+    @property
+    def id(self):
+        return self.codigo
+
+    def _parse_precio(self, valor):
+        """Convierte string de precio '1,600.00' a float"""
+        if valor is None:
+            return 0.0
+        if isinstance(valor, (int, float)):
+            return float(valor)
+        try:
+            # Remover comas de miles y convertir a float
+            return float(str(valor).replace(",", ""))
+        except (ValueError, TypeError):
+            return 0.0
+
+    @property
+    def precio_menor_float(self):
+        return self._parse_precio(self.precio_menor)
+
+    @property
+    def precio_mayor_float(self):
+        return self._parse_precio(self.precio_mayor)
 
     def to_dict(self):
+        precio_min = self.precio_menor_float
+        precio_may = self.precio_mayor_float
         return {
-            "id": self.id,
+            "id": self.codigo,
             "codigo": self.codigo,
             "producto": self.producto,
             "categoria": self.categoria,
-            "precio_menor": self.precio_menor,
-            "precio_mayor": self.precio_mayor,
-            "costo_compra": self.costo_compra,
+            "precio_menor": precio_min,
+            "precio_mayor": precio_may,
+            "costo_compra": 0.0,  # No existe en esquema actual
             "unidad": self.unidad,
             "codigo_barra": self.codigo_barra,
-            "ultima_actualizacion": str(self.ultima_actualizacion) if self.ultima_actualizacion else None,
+            "ultima_actualizacion": self.ultima_actualizacion,
             "diferencia_porcentual": round(
-                ((self.precio_menor - self.precio_mayor) / self.precio_mayor * 100)
-                if self.precio_mayor > 0 else 0, 2
+                ((precio_min - precio_may) / precio_may * 100)
+                if precio_may and precio_may > 0 else 0, 2
             )
         }
 
@@ -91,7 +117,7 @@ class DetalleVenta(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    producto_id = Column(Integer, ForeignKey("productos.id"), nullable=True)  # Nullable por si se borra el producto
+    producto_codigo = Column(String, ForeignKey('productos."CÓDIGO"'), nullable=True)  # FK al codigo del producto
     codigo_producto = Column(String, nullable=False)  # Guardar codigo por si se borra el producto
     nombre_producto = Column(String, nullable=False)  # Guardar nombre por si se borra el producto
     cantidad = Column(Float, nullable=False, default=1.0)
@@ -100,13 +126,13 @@ class DetalleVenta(Base):
 
     # Relaciones
     venta = relationship("Venta", back_populates="detalles")
-    producto = relationship("Producto")
+    producto = relationship("Producto", foreign_keys=[producto_codigo])
 
     def to_dict(self):
         return {
             "id": self.id,
             "venta_id": self.venta_id,
-            "producto_id": self.producto_id,
+            "producto_id": self.producto_codigo,  # Mantener nombre para compatibilidad
             "codigo_producto": self.codigo_producto,
             "nombre_producto": self.nombre_producto,
             "cantidad": self.cantidad,
