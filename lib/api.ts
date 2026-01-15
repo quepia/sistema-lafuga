@@ -1,7 +1,7 @@
 // API Service para comunicación con el backend FastAPI
 // Sistema de Gestión de Precios - LA FUGA
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // Tipos basados en los schemas del backend
 export interface Producto {

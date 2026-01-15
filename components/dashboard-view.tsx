@@ -20,7 +20,7 @@ export default function DashboardView() {
             {error}
             <br />
             <span className="text-sm mt-2 block">
-              Asegúrate de que el servidor backend esté corriendo en http://localhost:8000
+              Asegúrate de que el servidor backend esté corriendo correctamente
             </span>
           </AlertDescription>
         </Alert>
