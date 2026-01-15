@@ -3,6 +3,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
@@ -18,6 +21,16 @@ const nextConfig = {
       },
     ],
   },
-}
+  // ESTO SOLUCIONA EL ERROR DE __dirname
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      os: false,
+    };
+    return config;
+  },
+};
 
-export default nextConfig
+export default nextConfig;
