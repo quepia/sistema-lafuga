@@ -56,24 +56,6 @@ app = FastAPI(
     root_path="/api" if IS_VERCEL else ""
 )
 
-# Middleware para strip /api prefix en Vercel
-from starlette.middleware.base import BaseHTTPMiddleware
-
-class StripApiPrefixMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        # Si la ruta empieza con /api, la reescribimos sin el prefijo
-        if request.url.path.startswith("/api"):
-            # Crear nuevo scope con path modificado
-            scope = request.scope.copy()
-            scope["path"] = request.url.path[4:]  # Remove /api
-            if scope["path"] == "":
-                scope["path"] = "/"
-            from starlette.requests import Request
-            request = Request(scope, request.receive)
-        return await call_next(request)
-
-app.add_middleware(StripApiPrefixMiddleware)
-
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
@@ -695,6 +677,31 @@ async def productos_sin_codigo_barra(
         "offset": offset,
         "productos": [p.to_dict() for p in productos]
     }
+
+
+# ==================== MIDDLEWARE ASGI PARA VERCEL ====================
+# Debe ir al final para envolver la app completa con todos sus middlewares
+
+class StripApiPrefixMiddleware:
+    """Middleware ASGI que remueve el prefijo /api de las rutas en Vercel"""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if path.startswith("/api"):
+                scope = dict(scope)
+                scope["path"] = path[4:] or "/"
+                if "raw_path" in scope:
+                    raw_path = scope["raw_path"]
+                    if isinstance(raw_path, bytes) and raw_path.startswith(b"/api"):
+                        scope["raw_path"] = raw_path[4:] or b"/"
+        await self.app(scope, receive, send)
+
+# Aplicar el middleware solo en Vercel
+if IS_VERCEL:
+    app = StripApiPrefixMiddleware(app)
 
 
 if __name__ == "__main__":
