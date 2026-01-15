@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew upgrade:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pytest:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(sqlite3:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m uvicorn:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(pnpm dev)",
+      "Bash(pnpm dev:*)",
+      "Bash(pkill:*)",
+      "Bash(timeout 30 npx next dev:*)",
+      "Bash(for i in 1 2 3 4 5 6 7 8 9 10)",
+      "Bash(do)",
+      "Bash(if curl -s http://localhost:300)",
+      "Bash(then)",
+      "Bash(break)",
+      "Bash(fi)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(npx next:*)",
+      "Bash(pnpm exec next dev:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(node --version)",
+      "Bash(npm --version:*)",
+      "Bash(pnpm:*)",
+      "Bash(ss:*)",
+      "Bash(pstree:*)",
+      "Bash(python:*)",
+      "Bash(\"/Users/lautylopez/Desktop/TRABAJO/La Fuga/SISTEMA DE GESTION DE PRECIOS/ClaudeBackend/sistema-precios-lafuga/venv/bin/uvicorn\" main:app --host 0.0.0.0 --port 8000 --reload --app-dir \"/Users/lautylopez/Desktop/TRABAJO/La Fuga/SISTEMA DE GESTION DE PRECIOS/ClaudeBackend/sistema-precios-lafuga\")",
+      "Bash(./venv/bin/python:*)",
+      "Bash(kill:*)",
+      "Bash(./venv/bin/uvicorn:*)"
+    ]
+  }
+}

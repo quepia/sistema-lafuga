@@ -1,0 +1,72 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend-design-concept/package.json",
+      "use": "@vercel/next"
+    },
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/auth/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/productos/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/productos",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/categorias/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/categorias",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/estadisticas",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/ventas/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/ventas",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/reportes",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/importar/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/health",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend-design-concept/$1"
+    }
+  ]
+}
