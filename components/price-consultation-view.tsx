@@ -41,7 +41,7 @@ export default function PriceConsultationView() {
   const [updating, setUpdating] = useState(false)
 
   const { categorias, loading: loadingCategorias } = useCategorias()
-  const debounceRef = useRef<NodeJS.Timeout>()
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   // Función para buscar productos
   const fetchProductos = useCallback(async () => {

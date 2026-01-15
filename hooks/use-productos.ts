@@ -39,8 +39,8 @@ export function useProductos({
   const [categoria, setCategoria] = useState(initialCategoria)
   const [offset, setOffset] = useState(initialOffset)
 
-  const debounceRef = useRef<NodeJS.Timeout>()
-  const abortControllerRef = useRef<AbortController>()
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
+  const abortControllerRef = useRef<AbortController | undefined>(undefined)
 
   const fetchProductos = useCallback(async () => {
     // Cancelar request anterior si existe
