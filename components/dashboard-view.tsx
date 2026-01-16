@@ -1,10 +1,12 @@
 "use client"
 
-import { Package, AlertCircle, Tag, Layers, RefreshCw } from "lucide-react"
+import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import CsvUploader from "@/components/CsvUploader"
 import { useEstadisticas } from "@/hooks/use-estadisticas"
 
 export default function DashboardView() {
@@ -156,6 +158,25 @@ export default function DashboardView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* CSV Uploader Section */}
+      <Collapsible>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm sm:text-lg">Importar Productos desde CSV</CardTitle>
+                <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <CsvUploader />
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Productos por Categoría */}
       <Card>

@@ -1,10 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+// Verificación de variables de entorno con logging en desarrollo
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Faltan las variables de entorno NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  const missingVars = [];
+  if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL');
+  if (!supabaseAnonKey) missingVars.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(
+      `⚠️ [Supabase] Variables de entorno faltantes: ${missingVars.join(', ')}\n` +
+      `   Asegúrate de configurar estas variables en tu archivo .env.local o en Vercel Dashboard.`
+    );
+  }
+
+  throw new Error(
+    `Faltan las variables de entorno: ${missingVars.join(', ')}. ` +
+    `Configúralas en .env.local (desarrollo) o en Vercel Dashboard (producción).`
+  );
+}
+
+// Log de conexión exitosa solo en desarrollo
+if (process.env.NODE_ENV === 'development') {
+  console.log('✅ [Supabase] Cliente inicializado correctamente');
+  console.log(`   URL: ${supabaseUrl.substring(0, 30)}...`);
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
