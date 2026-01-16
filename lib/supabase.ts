@@ -30,68 +30,79 @@ if (process.env.NODE_ENV === 'development') {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Tipos de los datos crudos de Supabase (nombres exactos de las columnas del CSV)
-export interface ProductoRaw {
-  id?: number;
-  "CÓDIGO": string;
-  "PRODUCTO": string;
-  "CATEGORIA": string;
-  "PRECIO_MENOR": string; // Viene como texto con comas, ej: "1,600.00"
-  "PRECIO_MAYOR": string; // Viene como texto con comas
-  "UNIDAD": string | null;
-  "CODIGO_BARRA": string | null;
-}
-
-// Función para limpiar precios (quitar comas y convertir a número)
-export function parsePrecio(precioStr: string | null | undefined): number {
-  if (!precioStr || precioStr === '') return 0;
-  // Quitar comas de miles y convertir a número
-  const limpio = precioStr.replace(/,/g, '');
-  const numero = parseFloat(limpio);
-  return isNaN(numero) ? 0 : numero;
-}
-
-// Tipo del producto transformado para el frontend
+/**
+ * Tipo del producto tal como está en la base de datos (snake_case)
+ * Mapeo desde CSV:
+ * - CODIGO -> id (PK)
+ * - PRODUCTO -> nombre
+ * - CATEGORIA -> categoria
+ * - COSTO -> costo
+ * - PRECIO_MAYOR -> precio_mayor
+ * - PRECIO_MENOR -> precio_menor
+ * - UNIDAD -> unidad
+ * - CODIGO_BARRA -> codigo_barra
+ * - ULTIMA_ACTUALIZACION -> ultima_actualizacion
+ */
 export interface Producto {
-  id: number;
-  codigo: string;
-  producto: string;
-  categoria: string;
-  precio_menor: number;
-  precio_mayor: number;
-  costo_compra: number;
-  unidad: string | null;
-  codigo_barra: string | null;
-  ultima_actualizacion: string | null;
-  diferencia_porcentual: number;
+  id: string;                       // PK, from CSV 'CODIGO'
+  nombre: string;                   // from CSV 'PRODUCTO'
+  categoria: string | null;         // from CSV 'CATEGORIA'
+  costo: number;                    // from CSV 'COSTO'
+  precio_mayor: number;             // from CSV 'PRECIO_MAYOR'
+  precio_menor: number;             // from CSV 'PRECIO_MENOR'
+  unidad: string | null;            // from CSV 'UNIDAD'
+  codigo_barra: string | null;      // from CSV 'CODIGO_BARRA'
+  ultima_actualizacion: string | null; // from CSV 'ULTIMA_ACTUALIZACION'
+  created_at?: string;              // System timestamp
+  updated_at?: string;              // System timestamp
 }
 
-// Función para transformar datos crudos de Supabase al formato del frontend
-export function transformarProducto(raw: ProductoRaw, index: number): Producto {
-  const precio_menor = parsePrecio(raw["PRECIO_MENOR"]);
-  const precio_mayor = parsePrecio(raw["PRECIO_MAYOR"]);
-
-  // Calcular diferencia porcentual entre precio menor y mayor
-  const diferencia_porcentual = precio_mayor > 0
-    ? ((precio_menor - precio_mayor) / precio_mayor) * 100
-    : 0;
-
-  return {
-    id: raw.id ?? index + 1,
-    codigo: raw["CÓDIGO"] || '',
-    producto: raw["PRODUCTO"] || '',
-    categoria: raw["CATEGORIA"] || '',
-    precio_menor,
-    precio_mayor,
-    costo_compra: 0, // No está en el CSV, default 0
-    unidad: raw["UNIDAD"] || null,
-    codigo_barra: raw["CODIGO_BARRA"] || null,
-    ultima_actualizacion: null,
-    diferencia_porcentual: Math.round(diferencia_porcentual * 100) / 100,
-  };
+/**
+ * Tipo para insertar/actualizar productos (sin campos auto-generados)
+ */
+export interface ProductoInsert {
+  id: string;
+  nombre: string;
+  categoria?: string | null;
+  costo?: number;
+  precio_mayor?: number;
+  precio_menor?: number;
+  unidad?: string | null;
+  codigo_barra?: string | null;
+  ultima_actualizacion?: string | null;
 }
 
-// Función para transformar array de productos
-export function transformarProductos(rawProductos: ProductoRaw[]): Producto[] {
-  return rawProductos.map((raw, index) => transformarProducto(raw, index));
+/**
+ * Tipo para actualización parcial de productos
+ */
+export interface ProductoUpdate {
+  nombre?: string;
+  categoria?: string | null;
+  costo?: number;
+  precio_mayor?: number;
+  precio_menor?: number;
+  unidad?: string | null;
+  codigo_barra?: string | null;
+  ultima_actualizacion?: string | null;
+}
+
+/**
+ * Calcula el margen de ganancia en porcentaje
+ * @param precio - Precio de venta
+ * @param costo - Costo del producto
+ * @returns Porcentaje de margen, o 0 si el costo es 0
+ */
+export function calcularMargen(precio: number, costo: number): number {
+  if (costo <= 0) return 0;
+  return Math.round(((precio - costo) / costo) * 10000) / 100; // 2 decimales
+}
+
+/**
+ * Calcula la ganancia absoluta
+ * @param precio - Precio de venta
+ * @param costo - Costo del producto
+ * @returns Ganancia en valor absoluto
+ */
+export function calcularGanancia(precio: number, costo: number): number {
+  return Math.round((precio - costo) * 100) / 100;
 }

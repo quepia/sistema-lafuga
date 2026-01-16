@@ -3,6 +3,8 @@
  * Handles dirty Excel/CSV data cleaning and transformation
  */
 
+import { ProductoInsert } from './supabase';
+
 /**
  * Cleans a price string from various Excel formats and returns a JavaScript number.
  *
@@ -69,84 +71,54 @@ export function cleanPrice(priceStr: string | null | undefined): number {
 }
 
 /**
- * CSV Column mapping from CSV headers to database columns
- */
-export interface CsvColumnMapping {
-  csvColumn: string;
-  dbColumn: string;
-  transform?: (value: string) => string | number | null;
-}
-
-/**
- * Default column mapping for the productos table
- */
-export const DEFAULT_COLUMN_MAPPING: CsvColumnMapping[] = [
-  { csvColumn: 'CÓDIGO', dbColumn: 'id', transform: (v) => v?.trim() || null },
-  { csvColumn: 'PRODUCTO', dbColumn: 'nombre', transform: (v) => v?.trim() || '' },
-  { csvColumn: 'CATEGORIA', dbColumn: 'categoria', transform: (v) => v?.trim() || 'Sin categoría' },
-  { csvColumn: 'PRECIO_MENOR', dbColumn: 'precio_menor', transform: cleanPrice },
-  { csvColumn: 'PRECIO_MAYOR', dbColumn: 'precio_mayor', transform: cleanPrice },
-  { csvColumn: 'PREIO_MAYOR', dbColumn: 'precio_mayor', transform: cleanPrice }, // Handle typo in CSV
-  { csvColumn: 'UNIDAD', dbColumn: 'unidad', transform: (v) => v?.trim() || null },
-  { csvColumn: 'CODIGO_BARRA', dbColumn: 'codigo_barra', transform: (v) => v?.trim() || null },
-];
-
-/**
- * Represents a row from the CSV file
+ * Represents a row from the CSV file (with uppercase column names)
  */
 export interface CsvRow {
-  [key: string]: string;
-}
-
-/**
- * Represents a product ready for database insertion
- */
-export interface ProductoDb {
-  id: string;
-  nombre: string;
-  categoria: string;
-  precio_menor: number;
-  precio_mayor: number;
-  unidad: string | null;
-  codigo_barra: string | null;
+  CODIGO?: string;
+  PRODUCTO?: string;
+  CATEGORIA?: string;
+  COSTO?: string;
+  PRECIO_MAYOR?: string;
+  PRECIO_MENOR?: string;
+  UNIDAD?: string;
+  CODIGO_BARRA?: string;
+  ULTIMA_ACTUALIZACION?: string;
+  [key: string]: string | undefined;
 }
 
 /**
  * Transforms a CSV row to a database-ready product object
  *
+ * CSV Columns -> DB Columns:
+ * - CODIGO -> id (PK)
+ * - PRODUCTO -> nombre
+ * - CATEGORIA -> categoria
+ * - COSTO -> costo
+ * - PRECIO_MAYOR -> precio_mayor
+ * - PRECIO_MENOR -> precio_menor
+ * - UNIDAD -> unidad
+ * - CODIGO_BARRA -> codigo_barra
+ * - ULTIMA_ACTUALIZACION -> ultima_actualizacion
+ *
  * @param row - Raw CSV row object
- * @param mapping - Column mapping configuration
- * @returns Transformed product object or null if invalid
+ * @returns Transformed product object or null if invalid (missing CODIGO)
  */
-export function transformCsvRow(
-  row: CsvRow,
-  mapping: CsvColumnMapping[] = DEFAULT_COLUMN_MAPPING
-): ProductoDb | null {
-  const result: Partial<ProductoDb> = {};
+export function transformCsvRow(row: CsvRow): ProductoInsert | null {
+  const id = row.CODIGO?.trim();
 
-  for (const { csvColumn, dbColumn, transform } of mapping) {
-    const rawValue = row[csvColumn];
+  // If there's no code, skip this row (id is required)
+  if (!id) return null;
 
-    if (rawValue !== undefined) {
-      const transformedValue = transform ? transform(rawValue) : rawValue;
-      (result as Record<string, unknown>)[dbColumn] = transformedValue;
-    }
-  }
-
-  // Validate required fields
-  if (!result.id || !result.nombre) {
-    return null;
-  }
-
-  // Ensure all required fields have defaults
   return {
-    id: result.id,
-    nombre: result.nombre || '',
-    categoria: result.categoria || 'Sin categoría',
-    precio_menor: result.precio_menor ?? 0,
-    precio_mayor: result.precio_mayor ?? 0,
-    unidad: result.unidad ?? null,
-    codigo_barra: result.codigo_barra ?? null,
+    id,
+    nombre: row.PRODUCTO?.trim() || '',
+    categoria: row.CATEGORIA?.trim() || null,
+    costo: cleanPrice(row.COSTO),
+    precio_mayor: cleanPrice(row.PRECIO_MAYOR),
+    precio_menor: cleanPrice(row.PRECIO_MENOR),
+    unidad: row.UNIDAD?.trim() || null,
+    codigo_barra: row.CODIGO_BARRA?.trim() || null,
+    ultima_actualizacion: row.ULTIMA_ACTUALIZACION?.trim() || null,
   };
 }
 
@@ -154,7 +126,7 @@ export function transformCsvRow(
  * Result of CSV processing
  */
 export interface CsvProcessingResult {
-  validProducts: ProductoDb[];
+  validProducts: ProductoInsert[];
   invalidRows: { rowNumber: number; reason: string; data: CsvRow }[];
   totalRows: number;
 }
@@ -163,14 +135,10 @@ export interface CsvProcessingResult {
  * Processes an array of CSV rows and returns valid products and errors
  *
  * @param rows - Array of raw CSV row objects
- * @param mapping - Column mapping configuration
  * @returns Processing result with valid products and invalid rows
  */
-export function processCsvData(
-  rows: CsvRow[],
-  mapping: CsvColumnMapping[] = DEFAULT_COLUMN_MAPPING
-): CsvProcessingResult {
-  const validProducts: ProductoDb[] = [];
+export function processCsvData(rows: CsvRow[]): CsvProcessingResult {
+  const validProducts: ProductoInsert[] = [];
   const invalidRows: { rowNumber: number; reason: string; data: CsvRow }[] = [];
 
   rows.forEach((row, index) => {
@@ -182,22 +150,14 @@ export function processCsvData(
       return;
     }
 
-    const product = transformCsvRow(row, mapping);
+    const product = transformCsvRow(row);
 
     if (product) {
       validProducts.push(product);
     } else {
-      const missingFields: string[] = [];
-      if (!row['CÓDIGO'] || row['CÓDIGO'].trim() === '') {
-        missingFields.push('CÓDIGO');
-      }
-      if (!row['PRODUCTO'] || row['PRODUCTO'].trim() === '') {
-        missingFields.push('PRODUCTO');
-      }
-
       invalidRows.push({
         rowNumber,
-        reason: `Campos requeridos faltantes: ${missingFields.join(', ')}`,
+        reason: 'Campo requerido faltante: CODIGO',
         data: row,
       });
     }

@@ -96,7 +96,7 @@ export default function PriceConsultationView() {
     setEditingProduct(producto)
     setEditPrecioMenor(producto.precio_menor.toString())
     setEditPrecioMayor(producto.precio_mayor.toString())
-    setEditCostoCompra(producto.costo_compra.toString())
+    setEditCostoCompra(producto.costo.toString())
   }
 
   // Función para guardar cambios
@@ -118,7 +118,7 @@ export default function PriceConsultationView() {
       const updated = await api.actualizarProducto(editingProduct.id, {
         precio_menor: precioMenor,
         precio_mayor: precioMayor,
-        costo_compra: costoCompra,
+        costo: costoCompra,
       })
 
       // Actualizar el producto en la lista
@@ -126,7 +126,7 @@ export default function PriceConsultationView() {
         prev.map((p) => (p.id === updated.id ? updated : p))
       )
 
-      toast.success(`Producto "${editingProduct.producto}" actualizado correctamente`)
+      toast.success(`Producto "${editingProduct.nombre}" actualizado correctamente`)
       setEditingProduct(null)
     } catch (err) {
       if (err instanceof ApiError) {
@@ -245,10 +245,10 @@ export default function PriceConsultationView() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <Badge variant="outline" className="mb-1 sm:mb-2 font-mono text-[10px] sm:text-xs">
-                      {producto.codigo}
+                      {producto.id}
                     </Badge>
                     <CardTitle className="text-sm sm:text-base font-bold text-brand-dark leading-tight line-clamp-2">
-                      {producto.producto}
+                      {producto.nombre}
                     </CardTitle>
                   </div>
                   <Button
@@ -281,7 +281,7 @@ export default function PriceConsultationView() {
                   <div className="rounded-lg bg-gray-600 p-2 sm:p-4 text-white">
                     <div className="text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1 opacity-90">COSTO</div>
                     <div className="text-base sm:text-xl font-bold">
-                      ${producto.costo_compra.toLocaleString("es-AR")}
+                      ${producto.costo.toLocaleString("es-AR")}
                     </div>
                     <div className="text-[10px] sm:text-xs mt-0.5 sm:mt-1 opacity-75 hidden sm:block">Compra</div>
                   </div>
@@ -369,9 +369,9 @@ export default function PriceConsultationView() {
           <DialogHeader>
             <DialogTitle>Editar Precios</DialogTitle>
             <DialogDescription>
-              {editingProduct?.producto}
+              {editingProduct?.nombre}
               <br />
-              <span className="font-mono text-xs">{editingProduct?.codigo}</span>
+              <span className="font-mono text-xs">{editingProduct?.id}</span>
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

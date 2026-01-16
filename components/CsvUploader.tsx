@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import Papa from 'papaparse';
-import { supabase } from '@/lib/supabase';
-import { cleanPrice } from '@/lib/csv-utils';
+import { supabase, ProductoInsert } from '@/lib/supabase';
+import { CsvRow, processCsvData } from '@/lib/csv-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -16,30 +16,6 @@ import {
   AlertTriangle,
   Loader2,
 } from 'lucide-react';
-
-// Interface for raw CSV data
-interface CsvRow {
-  CÓDIGO?: string;
-  PRODUCTO?: string;
-  CATEGORIA?: string;
-  PRECIO_MENOR?: string;
-  PRECIO_MAYOR?: string;
-  PREIO_MAYOR?: string; // Handle common typo in CSV
-  UNIDAD?: string;
-  CODIGO_BARRA?: string;
-  [key: string]: string | undefined;
-}
-
-// Interface for clean product ready for Supabase
-interface ProductoSupabase {
-  id: string;
-  nombre: string;
-  categoria: string;
-  precio_menor: number;
-  precio_mayor: number;
-  unidad: string | null;
-  codigo_barra: string | null;
-}
 
 interface UploadResult {
   success: boolean;
@@ -55,29 +31,6 @@ interface ProcessingStats {
 }
 
 type UploadStatus = 'idle' | 'parsing' | 'uploading' | 'success' | 'error';
-
-/**
- * Maps and cleans a CSV row to Supabase format
- */
-function mapCsvRowToProducto(row: CsvRow): ProductoSupabase | null {
-  const id = row.CÓDIGO?.trim();
-
-  // If there's no code, skip this row
-  if (!id) return null;
-
-  // Handle both correct and typo versions of PRECIO_MAYOR
-  const precioMayorRaw = row.PRECIO_MAYOR || row.PREIO_MAYOR;
-
-  return {
-    id,
-    nombre: row.PRODUCTO?.trim() || '',
-    categoria: row.CATEGORIA?.trim() || 'Sin categoría',
-    precio_menor: cleanPrice(row.PRECIO_MENOR),
-    precio_mayor: cleanPrice(precioMayorRaw),
-    unidad: row.UNIDAD?.trim() || null,
-    codigo_barra: row.CODIGO_BARRA?.trim() || null,
-  };
-}
 
 export default function CsvUploader() {
   const [status, setStatus] = useState<UploadStatus>('idle');
@@ -98,9 +51,9 @@ export default function CsvUploader() {
     }
   }, []);
 
-  const uploadToSupabase = useCallback(async (products: ProductoSupabase[]): Promise<UploadResult> => {
+  const uploadToSupabase = useCallback(async (products: ProductoInsert[]): Promise<UploadResult> => {
     const BATCH_SIZE = 100;
-    const batches: ProductoSupabase[][] = [];
+    const batches: ProductoInsert[][] = [];
 
     // Split into batches for better performance and error handling
     for (let i = 0; i < products.length; i += BATCH_SIZE) {
@@ -170,26 +123,24 @@ export default function CsvUploader() {
           return;
         }
 
-        // Map and filter valid rows
-        const productos = results.data
-          .map(mapCsvRowToProducto)
-          .filter((p): p is ProductoSupabase => p !== null);
-
-        const invalidCount = results.data.length - productos.length;
+        // Process and validate CSV data using the utility function
+        const processed = processCsvData(results.data);
 
         setStats({
-          totalRows: results.data.length,
-          validProducts: productos.length,
-          invalidRows: invalidCount,
+          totalRows: processed.totalRows,
+          validProducts: processed.validProducts.length,
+          invalidRows: processed.invalidRows.length,
         });
 
-        if (productos.length === 0) {
+        if (processed.validProducts.length === 0) {
           setStatus('error');
           setResult({
             success: false,
-            message: 'No se encontraron productos válidos. Verifica que el CSV tenga la columna CÓDIGO.',
+            message: 'No se encontraron productos válidos. Verifica que el CSV tenga la columna CODIGO.',
             processed: 0,
-            errors: ['Ninguna fila tiene un código válido'],
+            errors: processed.invalidRows.length > 0
+              ? processed.invalidRows.map(r => `Fila ${r.rowNumber}: ${r.reason}`)
+              : ['Ninguna fila tiene un código válido'],
           });
           return;
         }
@@ -198,7 +149,7 @@ export default function CsvUploader() {
         setStatus('uploading');
         setProgress(0);
 
-        const uploadResult = await uploadToSupabase(productos);
+        const uploadResult = await uploadToSupabase(processed.validProducts);
         setResult(uploadResult);
         setStatus(uploadResult.success ? 'success' : 'error');
       },
@@ -258,7 +209,7 @@ export default function CsvUploader() {
               Arrastra un archivo CSV aquí o haz clic para seleccionar
             </p>
             <p className="text-xs text-muted-foreground">
-              Formato esperado: CÓDIGO, PRODUCTO, CATEGORIA, PRECIO_MENOR, PRECIO_MAYOR, UNIDAD, CODIGO_BARRA
+              Columnas: CODIGO, PRODUCTO, CATEGORIA, COSTO, PRECIO_MAYOR, PRECIO_MENOR, UNIDAD, CODIGO_BARRA
             </p>
             <input
               ref={fileInputRef}
@@ -352,8 +303,8 @@ export default function CsvUploader() {
 
         {/* Help Text */}
         <div className="text-xs text-muted-foreground border-t pt-4 space-y-1">
-          <p><strong>Columnas requeridas:</strong> CÓDIGO, PRODUCTO</p>
-          <p><strong>Columnas opcionales:</strong> CATEGORIA, PRECIO_MENOR, PRECIO_MAYOR, UNIDAD, CODIGO_BARRA</p>
+          <p><strong>Columna requerida:</strong> CODIGO</p>
+          <p><strong>Columnas opcionales:</strong> PRODUCTO, CATEGORIA, COSTO, PRECIO_MAYOR, PRECIO_MENOR, UNIDAD, CODIGO_BARRA, ULTIMA_ACTUALIZACION</p>
           <p><strong>Formatos de precio soportados:</strong> &quot;$ 1.600,00&quot;, &quot;1,600.00&quot;, &quot;1600&quot;</p>
         </div>
       </CardContent>

@@ -135,13 +135,13 @@ export function useProductos({
 }
 
 // Hook para obtener un producto específico
-export function useProducto(id: number | null) {
+export function useProducto(id: string | null) {
   const [producto, setProducto] = useState<Producto | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (id === null) {
+    if (id === null || id === '') {
       setProducto(null)
       return
     }
@@ -177,8 +177,8 @@ export function useActualizarProducto() {
 
   const actualizar = useCallback(
     async (
-      id: number,
-      datos: { precio_menor?: number; precio_mayor?: number }
+      id: string,
+      datos: { nombre?: string; precio_menor?: number; precio_mayor?: number; costo?: number }
     ): Promise<Producto | null> => {
       setLoading(true)
       setError(null)

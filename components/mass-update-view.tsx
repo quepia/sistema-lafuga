@@ -298,9 +298,9 @@ export default function MassUpdateView() {
 
                         return (
                           <TableRow key={item.id}>
-                            <TableCell className="font-mono text-[10px] sm:text-sm p-2 sm:p-4">{item.codigo}</TableCell>
+                            <TableCell className="font-mono text-[10px] sm:text-sm p-2 sm:p-4">{item.id}</TableCell>
                             <TableCell className="font-medium max-w-[100px] sm:max-w-[200px] truncate text-xs sm:text-sm p-2 sm:p-4">
-                              {item.producto}
+                              {item.nombre}
                             </TableCell>
                             {(priceType === "menor" || priceType === "ambos") && (
                               <>

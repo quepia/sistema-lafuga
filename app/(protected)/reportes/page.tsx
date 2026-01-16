@@ -286,14 +286,14 @@ export default function ReportesPage() {
                     className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{p.producto}</p>
+                      <p className="text-sm font-medium truncate">{p.nombre}</p>
                       <p className="text-xs text-muted-foreground">
-                        Codigo: {p.codigo}
+                        Codigo: {p.id}
                       </p>
                     </div>
                     <div className="text-right ml-2">
                       <p className="text-xs text-red-600">
-                        Costo: {formatCurrency(p.costo_compra)}
+                        Costo: {formatCurrency(p.costo)}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Precio: {formatCurrency(p.precio_menor)}
@@ -343,9 +343,9 @@ export default function ReportesPage() {
                     className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-100"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{p.producto}</p>
+                      <p className="text-sm font-medium truncate">{p.nombre}</p>
                       <p className="text-xs text-muted-foreground">
-                        Codigo: {p.codigo}
+                        Codigo: {p.id}
                       </p>
                     </div>
                     <Badge variant="outline" className="ml-2">

@@ -1,24 +1,12 @@
 // API Service para comunicación directa con Supabase
 // Sistema de Gestión de Precios - LA FUGA
 
-import { supabase, transformarProductos, transformarProducto, parsePrecio, ProductoRaw } from './supabase';
+import { supabase, Producto, ProductoUpdate, calcularMargen } from './supabase';
 
 const TABLA_PRODUCTOS = 'productos';
 
-// Tipos basados en los schemas del frontend
-export interface Producto {
-  id: number;
-  codigo: string;
-  producto: string;
-  categoria: string;
-  precio_menor: number;
-  precio_mayor: number;
-  costo_compra: number;
-  unidad: string | null;
-  codigo_barra: string | null;
-  ultima_actualizacion: string | null;
-  diferencia_porcentual: number;
-}
+// Re-export Producto type for convenience
+export type { Producto, ProductoUpdate };
 
 export interface ProductosPaginados {
   total: number;
@@ -35,23 +23,14 @@ export interface Estadisticas {
   productos_sin_codigo_barra: number;
   promedio_precio_menor: number;
   promedio_precio_mayor: number;
+  promedio_costo: number;
 }
 
 export interface ActualizacionMasiva {
   categoria?: string;
   codigos?: string[];
   porcentaje: number;
-  aplicar_a: 'menor' | 'mayor' | 'ambos';
-}
-
-export interface ProductoUpdate {
-  producto?: string;
-  categoria?: string;
-  precio_menor?: number;
-  precio_mayor?: number;
-  costo_compra?: number;
-  unidad?: string;
-  codigo_barra?: string;
+  aplicar_a: 'menor' | 'mayor' | 'costo' | 'ambos' | 'todos';
 }
 
 // Clase de error personalizada para errores de API
@@ -89,6 +68,7 @@ export const api = {
 
   /**
    * Lista productos con filtros opcionales y paginación
+   * NOTA: Supabase por defecto limita a 1000 filas. Usamos range() para manejar esto.
    */
   async listarProductos(params: {
     query?: string;
@@ -100,14 +80,20 @@ export const api = {
   } = {}): Promise<ProductosPaginados> {
     const { query, categoria, precio_min, precio_max, limit = 50, offset = 0 } = params;
 
-    // Primero obtener el total
+    // Primero obtener el total exacto (sin límite de 1000)
     let countQuery = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head: true });
 
     if (categoria) {
-      countQuery = countQuery.eq('CATEGORIA', categoria);
+      countQuery = countQuery.eq('categoria', categoria);
     }
     if (query) {
-      countQuery = countQuery.or(`PRODUCTO.ilike.%${query}%,CÓDIGO.ilike.%${query}%,CODIGO_BARRA.ilike.%${query}%`);
+      countQuery = countQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
+    }
+    if (precio_min !== undefined) {
+      countQuery = countQuery.gte('precio_menor', precio_min);
+    }
+    if (precio_max !== undefined) {
+      countQuery = countQuery.lte('precio_menor', precio_max);
     }
 
     const { count, error: countError } = await countQuery;
@@ -117,27 +103,25 @@ export const api = {
     let dataQuery = supabase.from(TABLA_PRODUCTOS).select('*');
 
     if (categoria) {
-      dataQuery = dataQuery.eq('CATEGORIA', categoria);
+      dataQuery = dataQuery.eq('categoria', categoria);
     }
     if (query) {
-      dataQuery = dataQuery.or(`PRODUCTO.ilike.%${query}%,CÓDIGO.ilike.%${query}%,CODIGO_BARRA.ilike.%${query}%`);
+      dataQuery = dataQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
+    }
+    if (precio_min !== undefined) {
+      dataQuery = dataQuery.gte('precio_menor', precio_min);
+    }
+    if (precio_max !== undefined) {
+      dataQuery = dataQuery.lte('precio_menor', precio_max);
     }
 
+    // Usar range() para paginación (evita el límite de 1000)
     dataQuery = dataQuery.range(offset, offset + limit - 1);
 
     const { data, error } = await dataQuery;
     if (error) handleSupabaseError(error);
 
-    let productos = transformarProductos(data as ProductoRaw[] || []);
-
-    // Filtrar por precio si es necesario (post-query ya que los precios son texto)
-    if (precio_min !== undefined || precio_max !== undefined) {
-      productos = productos.filter(p => {
-        if (precio_min !== undefined && p.precio_menor < precio_min) return false;
-        if (precio_max !== undefined && p.precio_menor > precio_max) return false;
-        return true;
-      });
-    }
+    const productos = (data as Producto[]) || [];
 
     return {
       total: count || 0,
@@ -149,6 +133,37 @@ export const api = {
   },
 
   /**
+   * Obtiene TODOS los productos (sin paginación, para estadísticas)
+   * Usa múltiples consultas si hay más de 1000 productos
+   */
+  async obtenerTodosLosProductos(): Promise<Producto[]> {
+    const BATCH_SIZE = 1000;
+    let allProducts: Producto[] = [];
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(TABLA_PRODUCTOS)
+        .select('*')
+        .range(offset, offset + BATCH_SIZE - 1);
+
+      if (error) handleSupabaseError(error);
+
+      const productos = (data as Producto[]) || [];
+      allProducts = [...allProducts, ...productos];
+
+      if (productos.length < BATCH_SIZE) {
+        hasMore = false;
+      } else {
+        offset += BATCH_SIZE;
+      }
+    }
+
+    return allProducts;
+  },
+
+  /**
    * Busca productos por texto (nombre, código, código de barras)
    */
   async buscarProductos(query: string, limite: number = 20): Promise<Producto[]> {
@@ -157,9 +172,9 @@ export const api = {
   },
 
   /**
-   * Obtiene un producto por su ID
+   * Obtiene un producto por su ID (código)
    */
-  async obtenerProducto(id: number): Promise<Producto> {
+  async obtenerProducto(id: string): Promise<Producto> {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .select('*')
@@ -167,21 +182,7 @@ export const api = {
       .single();
 
     if (error) handleSupabaseError(error);
-    return transformarProducto(data as ProductoRaw, 0);
-  },
-
-  /**
-   * Obtiene un producto por su código SKU
-   */
-  async obtenerProductoPorCodigo(codigo: string): Promise<Producto> {
-    const { data, error } = await supabase
-      .from(TABLA_PRODUCTOS)
-      .select('*')
-      .eq('CÓDIGO', codigo)
-      .single();
-
-    if (error) handleSupabaseError(error);
-    return transformarProducto(data as ProductoRaw, 0);
+    return data as Producto;
   },
 
   /**
@@ -191,42 +192,32 @@ export const api = {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .select('*')
-      .eq('CODIGO_BARRA', codigoBarras)
+      .eq('codigo_barra', codigoBarras)
       .single();
 
     if (error) handleSupabaseError(error);
-    return transformarProducto(data as ProductoRaw, 0);
+    return data as Producto;
   },
 
   /**
    * Actualiza un producto existente
    */
-  async actualizarProducto(id: number, datos: ProductoUpdate): Promise<Producto> {
-    // Mapear campos del frontend a columnas de Supabase
-    const updateData: Record<string, unknown> = {};
-
-    if (datos.producto !== undefined) updateData['PRODUCTO'] = datos.producto;
-    if (datos.categoria !== undefined) updateData['CATEGORIA'] = datos.categoria;
-    if (datos.precio_menor !== undefined) updateData['PRECIO_MENOR'] = datos.precio_menor.toFixed(2);
-    if (datos.precio_mayor !== undefined) updateData['PRECIO_MAYOR'] = datos.precio_mayor.toFixed(2);
-    if (datos.unidad !== undefined) updateData['UNIDAD'] = datos.unidad;
-    if (datos.codigo_barra !== undefined) updateData['CODIGO_BARRA'] = datos.codigo_barra;
-
+  async actualizarProducto(id: string, datos: ProductoUpdate): Promise<Producto> {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
-      .update(updateData)
+      .update(datos)
       .eq('id', id)
       .select()
       .single();
 
     if (error) handleSupabaseError(error);
-    return transformarProducto(data as ProductoRaw, 0);
+    return data as Producto;
   },
 
   /**
    * Elimina un producto
    */
-  async eliminarProducto(id: number): Promise<void> {
+  async eliminarProducto(id: string): Promise<void> {
     const { error } = await supabase
       .from(TABLA_PRODUCTOS)
       .delete()
@@ -241,17 +232,14 @@ export const api = {
    * Obtiene todas las categorías disponibles
    */
   async obtenerCategorias(): Promise<string[]> {
-    const { data, error } = await supabase
-      .from(TABLA_PRODUCTOS)
-      .select('CATEGORIA');
-
-    if (error) handleSupabaseError(error);
+    // Obtener todas las categorías (puede haber más de 1000 productos)
+    const productos = await this.obtenerTodosLosProductos();
 
     // Extraer categorías únicas
     const categoriasSet = new Set<string>();
-    (data || []).forEach((item: { CATEGORIA: string }) => {
-      if (item.CATEGORIA) {
-        categoriasSet.add(item.CATEGORIA);
+    productos.forEach((p) => {
+      if (p.categoria) {
+        categoriasSet.add(p.categoria);
       }
     });
 
@@ -265,44 +253,54 @@ export const api = {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .select('*')
-      .eq('CATEGORIA', categoria);
+      .eq('categoria', categoria)
+      .range(0, 2999); // Aumentado para categorías grandes
 
     if (error) handleSupabaseError(error);
-    return transformarProductos(data as ProductoRaw[] || []);
+    return (data as Producto[]) || [];
   },
 
   // ==================== ESTADÍSTICAS ====================
 
   /**
    * Obtiene estadísticas generales del sistema
+   * Usa obtenerTodosLosProductos() para evitar el límite de 1000
    */
   async obtenerEstadisticas(): Promise<Estadisticas> {
-    const { data, error } = await supabase.from(TABLA_PRODUCTOS).select('*');
-
-    if (error) handleSupabaseError(error);
-
-    const productos = transformarProductos(data as ProductoRaw[] || []);
+    const productos = await this.obtenerTodosLosProductos();
     const total = productos.length;
 
     // Productos por categoría
     const productos_por_categoria: Record<string, number> = {};
     productos.forEach(p => {
-      productos_por_categoria[p.categoria] = (productos_por_categoria[p.categoria] || 0) + 1;
+      const cat = p.categoria || 'Sin categoría';
+      productos_por_categoria[cat] = (productos_por_categoria[cat] || 0) + 1;
     });
 
     // Productos sin precio
-    const productos_sin_precio = productos.filter(p => p.precio_menor === 0 && p.precio_mayor === 0).length;
+    const productos_sin_precio = productos.filter(p =>
+      (p.precio_menor === 0 || p.precio_menor === null) &&
+      (p.precio_mayor === 0 || p.precio_mayor === null)
+    ).length;
 
     // Productos sin código de barras
     const productos_sin_codigo_barra = productos.filter(p => !p.codigo_barra).length;
 
-    // Promedios
-    const productosConPrecio = productos.filter(p => p.precio_menor > 0 || p.precio_mayor > 0);
-    const promedio_precio_menor = productosConPrecio.length > 0
-      ? productosConPrecio.reduce((sum, p) => sum + p.precio_menor, 0) / productosConPrecio.length
+    // Promedios (solo productos con valores válidos)
+    const productosConPrecioMenor = productos.filter(p => p.precio_menor > 0);
+    const productosConPrecioMayor = productos.filter(p => p.precio_mayor > 0);
+    const productosConCosto = productos.filter(p => p.costo > 0);
+
+    const promedio_precio_menor = productosConPrecioMenor.length > 0
+      ? productosConPrecioMenor.reduce((sum, p) => sum + p.precio_menor, 0) / productosConPrecioMenor.length
       : 0;
-    const promedio_precio_mayor = productosConPrecio.length > 0
-      ? productosConPrecio.reduce((sum, p) => sum + p.precio_mayor, 0) / productosConPrecio.length
+
+    const promedio_precio_mayor = productosConPrecioMayor.length > 0
+      ? productosConPrecioMayor.reduce((sum, p) => sum + p.precio_mayor, 0) / productosConPrecioMayor.length
+      : 0;
+
+    const promedio_costo = productosConCosto.length > 0
+      ? productosConCosto.reduce((sum, p) => sum + p.costo, 0) / productosConCosto.length
       : 0;
 
     return {
@@ -312,6 +310,7 @@ export const api = {
       productos_sin_codigo_barra,
       promedio_precio_menor: Math.round(promedio_precio_menor * 100) / 100,
       promedio_precio_mayor: Math.round(promedio_precio_mayor * 100) / 100,
+      promedio_costo: Math.round(promedio_costo * 100) / 100,
     };
   },
 
@@ -331,36 +330,40 @@ export const api = {
     let query = supabase.from(TABLA_PRODUCTOS).select('*');
 
     if (categoria) {
-      query = query.eq('CATEGORIA', categoria);
+      query = query.eq('categoria', categoria);
     }
     if (codigos && codigos.length > 0) {
-      query = query.in('CÓDIGO', codigos);
+      query = query.in('id', codigos);
     }
+
+    // Usar range amplio para categorías grandes
+    query = query.range(0, 2999);
 
     const { data, error } = await query;
     if (error) handleSupabaseError(error);
 
-    const productosRaw = data as ProductoRaw[] || [];
+    const productosRaw = (data as Producto[]) || [];
     let actualizados = 0;
 
     // Actualizar cada producto
-    for (const raw of productosRaw) {
-      const updateData: Record<string, string> = {};
-      const precioMenor = parsePrecio(raw['PRECIO_MENOR']);
-      const precioMayor = parsePrecio(raw['PRECIO_MAYOR']);
+    for (const producto of productosRaw) {
+      const updateData: Partial<Producto> = {};
 
-      if (aplicar_a === 'menor' || aplicar_a === 'ambos') {
-        updateData['PRECIO_MENOR'] = (precioMenor * factor).toFixed(2);
+      if ((aplicar_a === 'menor' || aplicar_a === 'ambos' || aplicar_a === 'todos') && producto.precio_menor > 0) {
+        updateData.precio_menor = Math.round(producto.precio_menor * factor * 100) / 100;
       }
-      if (aplicar_a === 'mayor' || aplicar_a === 'ambos') {
-        updateData['PRECIO_MAYOR'] = (precioMayor * factor).toFixed(2);
+      if ((aplicar_a === 'mayor' || aplicar_a === 'ambos' || aplicar_a === 'todos') && producto.precio_mayor > 0) {
+        updateData.precio_mayor = Math.round(producto.precio_mayor * factor * 100) / 100;
+      }
+      if ((aplicar_a === 'costo' || aplicar_a === 'todos') && producto.costo > 0) {
+        updateData.costo = Math.round(producto.costo * factor * 100) / 100;
       }
 
       if (Object.keys(updateData).length > 0) {
         const { error: updateError } = await supabase
           .from(TABLA_PRODUCTOS)
           .update(updateData)
-          .eq('id', raw.id);
+          .eq('id', producto.id);
 
         if (!updateError) actualizados++;
       }
@@ -378,7 +381,7 @@ export const api = {
   async actualizarPreciosPorCategoria(
     categoria: string,
     porcentaje: number,
-    aplicarA: 'menor' | 'mayor' | 'ambos' = 'ambos'
+    aplicarA: 'menor' | 'mayor' | 'costo' | 'ambos' | 'todos' = 'ambos'
   ): Promise<{ message: string; productos_actualizados: number }> {
     return this.actualizacionMasiva({
       categoria,
@@ -393,7 +396,7 @@ export const api = {
   async actualizarPreciosPorCodigos(
     codigos: string[],
     porcentaje: number,
-    aplicarA: 'menor' | 'mayor' | 'ambos' = 'ambos'
+    aplicarA: 'menor' | 'mayor' | 'costo' | 'ambos' | 'todos' = 'ambos'
   ): Promise<{ message: string; productos_actualizados: number }> {
     return this.actualizacionMasiva({
       codigos,
@@ -402,60 +405,42 @@ export const api = {
     });
   },
 
-  // ==================== IMPORTACIÓN ====================
-
-  /**
-   * Importa productos desde un archivo Excel (no implementado para Supabase directo)
-   */
-  async importarExcel(_file: File): Promise<{
-    message: string;
-    productos_creados: number;
-    productos_actualizados: number;
-    errores: string[];
-  }> {
-    throw new ApiError(
-      'Importación de Excel no disponible. Use la interfaz de Supabase para importar datos.',
-      501,
-      'NOT_IMPLEMENTED'
-    );
-  },
-
   // ==================== REPORTES ====================
 
   /**
    * Obtiene datos para reportes de negocio
    */
   async obtenerReportes(): Promise<ReportesData> {
-    const { data, error } = await supabase.from(TABLA_PRODUCTOS).select('*');
-    if (error) handleSupabaseError(error);
-
-    const productos = transformarProductos(data as ProductoRaw[] || []);
+    const productos = await this.obtenerTodosLosProductos();
 
     // Calcular valuación
-    const total_costo_inventario = productos.reduce((sum, p) => sum + p.costo_compra, 0);
-    const total_valor_minorista = productos.reduce((sum, p) => sum + p.precio_menor, 0);
-    const total_valor_mayorista = productos.reduce((sum, p) => sum + p.precio_mayor, 0);
+    const total_costo_inventario = productos.reduce((sum, p) => sum + (p.costo || 0), 0);
+    const total_valor_minorista = productos.reduce((sum, p) => sum + (p.precio_menor || 0), 0);
+    const total_valor_mayorista = productos.reduce((sum, p) => sum + (p.precio_mayor || 0), 0);
 
-    // Calcular rentabilidad
-    const productosConCosto = productos.filter(p => p.costo_compra > 0);
+    // Calcular rentabilidad (solo productos con costo > 0)
+    const productosConCosto = productos.filter(p => p.costo > 0);
     const margen_promedio_minorista = productosConCosto.length > 0
-      ? productosConCosto.reduce((sum, p) => sum + ((p.precio_menor - p.costo_compra) / p.costo_compra * 100), 0) / productosConCosto.length
+      ? productosConCosto.reduce((sum, p) => sum + calcularMargen(p.precio_menor, p.costo), 0) / productosConCosto.length
       : 0;
     const margen_promedio_mayorista = productosConCosto.length > 0
-      ? productosConCosto.reduce((sum, p) => sum + ((p.precio_mayor - p.costo_compra) / p.costo_compra * 100), 0) / productosConCosto.length
+      ? productosConCosto.reduce((sum, p) => sum + calcularMargen(p.precio_mayor, p.costo), 0) / productosConCosto.length
       : 0;
 
     // Alertas
-    const productos_margen_negativo = productos.filter(p => p.costo_compra > 0 && p.precio_menor < p.costo_compra);
-    const productos_sin_precio = productos.filter(p => p.precio_menor === 0 && p.precio_mayor === 0);
+    const productos_margen_negativo = productos.filter(p => p.costo > 0 && p.precio_menor < p.costo);
+    const productos_sin_precio = productos.filter(p =>
+      (p.precio_menor === 0 || p.precio_menor === null) &&
+      (p.precio_mayor === 0 || p.precio_mayor === null)
+    );
 
     // Performance por categoría
-    const categorias = [...new Set(productos.map(p => p.categoria))];
+    const categorias = [...new Set(productos.map(p => p.categoria || 'Sin categoría'))];
     const categoria_performance = categorias.map(categoria => {
-      const prods = productos.filter(p => p.categoria === categoria);
-      const total_costo = prods.reduce((sum, p) => sum + p.costo_compra, 0);
-      const total_valor_menor = prods.reduce((sum, p) => sum + p.precio_menor, 0);
-      const total_valor_mayor = prods.reduce((sum, p) => sum + p.precio_mayor, 0);
+      const prods = productos.filter(p => (p.categoria || 'Sin categoría') === categoria);
+      const total_costo = prods.reduce((sum, p) => sum + (p.costo || 0), 0);
+      const total_valor_menor = prods.reduce((sum, p) => sum + (p.precio_menor || 0), 0);
+      const total_valor_mayor = prods.reduce((sum, p) => sum + (p.precio_mayor || 0), 0);
 
       return {
         categoria,

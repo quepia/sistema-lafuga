@@ -39,7 +39,8 @@
       "Bash(./venv/bin/uvicorn:*)",
       "Bash(npx tsc --noEmit --skipLibCheck)",
       "Bash(npm run build:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(npx tsc --noEmit)"
     ]
   }
 }

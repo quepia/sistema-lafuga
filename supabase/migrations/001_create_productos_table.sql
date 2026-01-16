@@ -13,20 +13,23 @@
 
 -- Create the productos table with snake_case column names
 CREATE TABLE IF NOT EXISTS productos (
-  -- Primary key: matches CSV column 'CÓDIGO'
+  -- Primary key: matches CSV column 'CODIGO'
   id TEXT PRIMARY KEY,
 
   -- Product name: matches CSV column 'PRODUCTO'
   nombre TEXT NOT NULL,
 
   -- Category: matches CSV column 'CATEGORIA'
-  categoria TEXT NOT NULL,
+  categoria TEXT,
+
+  -- Cost price: matches CSV column 'COSTO'
+  costo NUMERIC(12, 2) DEFAULT 0,
+
+  -- Wholesale price (precio mayorista): matches CSV column 'PRECIO_MAYOR'
+  precio_mayor NUMERIC(12, 2) DEFAULT 0,
 
   -- Retail price (precio minorista): matches CSV column 'PRECIO_MENOR'
   precio_menor NUMERIC(12, 2) DEFAULT 0,
-
-  -- Wholesale price (precio mayorista): matches CSV column 'PRECIO_MAYOR' (note: CSV has typo 'PREIO_MAYOR')
-  precio_mayor NUMERIC(12, 2) DEFAULT 0,
 
   -- Unit of measurement: matches CSV column 'UNIDAD'
   unidad TEXT,
@@ -34,7 +37,10 @@ CREATE TABLE IF NOT EXISTS productos (
   -- Barcode: matches CSV column 'CODIGO_BARRA'
   codigo_barra TEXT,
 
-  -- Metadata
+  -- Last update from CSV: matches CSV column 'ULTIMA_ACTUALIZACION'
+  ultima_actualizacion TEXT,
+
+  -- Metadata (system timestamps)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -74,39 +80,26 @@ ALTER TABLE productos DISABLE ROW LEVEL SECURITY;
 /*
 ALTER TABLE productos ENABLE ROW LEVEL SECURITY;
 
--- Allow anyone to read
 CREATE POLICY "Allow public read access" ON productos
   FOR SELECT USING (true);
 
--- Allow anyone to insert
 CREATE POLICY "Allow public insert access" ON productos
   FOR INSERT WITH CHECK (true);
 
--- Allow anyone to update
 CREATE POLICY "Allow public update access" ON productos
   FOR UPDATE USING (true) WITH CHECK (true);
 
--- Allow anyone to delete
 CREATE POLICY "Allow public delete access" ON productos
   FOR DELETE USING (true);
 */
 
--- OPTION 3: Authenticated users only (more secure)
--- Uncomment these lines for production with authentication:
+-- ============================================================================
+-- MIGRATION: Add missing columns to existing table
+-- ============================================================================
+-- If your table already exists and is missing columns, run these:
 /*
-ALTER TABLE productos ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Authenticated users can read" ON productos
-  FOR SELECT TO authenticated USING (true);
-
-CREATE POLICY "Authenticated users can insert" ON productos
-  FOR INSERT TO authenticated WITH CHECK (true);
-
-CREATE POLICY "Authenticated users can update" ON productos
-  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "Authenticated users can delete" ON productos
-  FOR DELETE TO authenticated USING (true);
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS costo NUMERIC(12, 2) DEFAULT 0;
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS ultima_actualizacion TEXT;
 */
 
 -- ============================================================================
