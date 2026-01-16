@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Search, Plus, Minus, Trash2, Printer, ShoppingCart } from "lucide-react"
+import { Search, Plus, Minus, Trash2, Printer, ShoppingCart, CreditCard, Banknote } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,18 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import TicketPrint from "@/components/ticket-print"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
-
-interface Producto {
-  id: number
-  codigo: string
-  producto: string
-  categoria: string
-  precio_menor: number
-  precio_mayor: number
-  unidad: string | null
-}
+import { api, Producto } from "@/lib/api"
 
 interface CarritoItem {
   producto: Producto
@@ -44,11 +33,12 @@ interface CarritoItem {
 }
 
 interface VentaCreada {
-  id: number
+  id: string
   fecha: string
   cliente_nombre: string
   total: number
   tipo_venta: string
+  metodo_pago: string
   detalles: Array<{
     nombre_producto: string
     cantidad: number
@@ -62,7 +52,8 @@ export default function NuevaVentaPage() {
   const [searchResults, setSearchResults] = useState<Producto[]>([])
   const [carrito, setCarrito] = useState<CarritoItem[]>([])
   const [clienteNombre, setClienteNombre] = useState("")
-  const [tipoVenta, setTipoVenta] = useState<"Minorista" | "Mayorista">("Minorista")
+  const [tipoVenta, setTipoVenta] = useState<"MENOR" | "MAYOR">("MENOR")
+  const [metodoPago, setMetodoPago] = useState<"Efectivo" | "Transferencia" | "Tarjeta">("Efectivo")
   const [loading, setLoading] = useState(false)
   const [searching, setSearching] = useState(false)
   const [ventaCreada, setVentaCreada] = useState<VentaCreada | null>(null)
@@ -71,7 +62,7 @@ export default function NuevaVentaPage() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
-  // Buscar productos
+  // Buscar productos usando api.ts directamente
   const buscarProductos = async (query: string) => {
     if (!query.trim()) {
       setSearchResults([])
@@ -80,11 +71,11 @@ export default function NuevaVentaPage() {
 
     setSearching(true)
     try {
-      const res = await fetch(`${API_URL}/productos?query=${encodeURIComponent(query)}&limit=10`)
-      const data = await res.json()
-      setSearchResults(data.productos || [])
+      const productos = await api.buscarProductos(query, 10)
+      setSearchResults(productos)
     } catch (error) {
       console.error("Error buscando productos:", error)
+      setSearchResults([])
     } finally {
       setSearching(false)
     }
@@ -100,7 +91,7 @@ export default function NuevaVentaPage() {
 
   // Calcular precio segun tipo de venta
   const getPrecio = (producto: Producto) => {
-    return tipoVenta === "Mayorista" ? producto.precio_mayor : producto.precio_menor
+    return tipoVenta === "MAYOR" ? producto.precio_mayor : producto.precio_menor
   }
 
   // Agregar al carrito
@@ -133,12 +124,12 @@ export default function NuevaVentaPage() {
 
     toast({
       title: "Producto agregado",
-      description: producto.producto,
+      description: producto.nombre,
     })
   }
 
   // Actualizar cantidad
-  const actualizarCantidad = (productoId: number, nuevaCantidad: number) => {
+  const actualizarCantidad = (productoId: string, nuevaCantidad: number) => {
     if (nuevaCantidad <= 0) {
       eliminarDelCarrito(productoId)
       return
@@ -156,7 +147,7 @@ export default function NuevaVentaPage() {
   }
 
   // Eliminar del carrito
-  const eliminarDelCarrito = (productoId: number) => {
+  const eliminarDelCarrito = (productoId: string) => {
     setCarrito(carrito.filter(item => item.producto.id !== productoId))
   }
 
@@ -175,7 +166,7 @@ export default function NuevaVentaPage() {
     }))
   }, [tipoVenta])
 
-  // Generar ticket
+  // Generar ticket y guardar venta
   const generarTicket = async () => {
     if (carrito.length === 0) {
       toast({
@@ -188,25 +179,40 @@ export default function NuevaVentaPage() {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/ventas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cliente_nombre: clienteNombre || "Cliente General",
-          tipo_venta: tipoVenta,
-          items: carrito.map(item => ({
-            producto_id: item.producto.id,
-            cantidad: item.cantidad
-          }))
-        })
+      // Preparar datos de la venta
+      const detallesVenta = carrito.map(item => ({
+        producto_id: item.producto.id,
+        nombre_producto: item.producto.nombre,
+        cantidad: item.cantidad,
+        precio_unitario: item.precioUnitario,
+        subtotal: item.subtotal
+      }))
+
+      // Guardar venta en Supabase
+      const ventaGuardada = await api.crearVenta({
+        tipo_venta: tipoVenta,
+        total,
+        metodo_pago: metodoPago,
+        cliente_nombre: clienteNombre || "Cliente General",
+        productos: detallesVenta
       })
 
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.detail || "Error al crear la venta")
+      // Crear objeto de venta para el ticket
+      const venta: VentaCreada = {
+        id: ventaGuardada.id,
+        fecha: ventaGuardada.created_at,
+        cliente_nombre: clienteNombre || "Cliente General",
+        total,
+        tipo_venta: tipoVenta === "MAYOR" ? "Mayorista" : "Minorista",
+        metodo_pago: metodoPago,
+        detalles: detallesVenta.map(d => ({
+          nombre_producto: d.nombre_producto,
+          cantidad: d.cantidad,
+          precio_unitario: d.precio_unitario,
+          subtotal: d.subtotal
+        }))
       }
 
-      const venta = await res.json()
       setVentaCreada(venta)
       setShowPrint(true)
 
@@ -216,9 +222,10 @@ export default function NuevaVentaPage() {
 
       toast({
         title: "Venta registrada",
-        description: `Ticket #${venta.id} generado correctamente`,
+        description: `Ticket #${ventaGuardada.id.slice(0, 8)} generado correctamente`,
       })
     } catch (error) {
+      console.error("Error al crear venta:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Error al generar el ticket",
@@ -238,17 +245,17 @@ export default function NuevaVentaPage() {
           <p className="text-muted-foreground">Genera tickets y presupuestos</p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={tipoVenta} onValueChange={(v) => setTipoVenta(v as "Minorista" | "Mayorista")}>
+          <Select value={tipoVenta} onValueChange={(v) => setTipoVenta(v as "MENOR" | "MAYOR")}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="Minorista">Minorista</SelectItem>
-              <SelectItem value="Mayorista">Mayorista</SelectItem>
+              <SelectItem value="MENOR">Minorista</SelectItem>
+              <SelectItem value="MAYOR">Mayorista</SelectItem>
             </SelectContent>
           </Select>
-          <Badge variant={tipoVenta === "Mayorista" ? "default" : "secondary"}>
-            {tipoVenta}
+          <Badge variant={tipoVenta === "MAYOR" ? "default" : "secondary"}>
+            {tipoVenta === "MAYOR" ? "Mayorista" : "Minorista"}
           </Badge>
         </div>
       </div>
@@ -282,9 +289,9 @@ export default function NuevaVentaPage() {
                       onClick={() => agregarAlCarrito(producto)}
                     >
                       <div>
-                        <p className="font-medium">{producto.producto}</p>
+                        <p className="font-medium">{producto.nombre}</p>
                         <p className="text-sm text-muted-foreground">
-                          {producto.codigo} - {producto.categoria}
+                          {producto.id} - {producto.categoria || "Sin categoría"}
                         </p>
                       </div>
                       <div className="text-right">
@@ -338,8 +345,8 @@ export default function NuevaVentaPage() {
                         <TableRow key={item.producto.id}>
                           <TableCell>
                             <div>
-                              <p className="font-medium">{item.producto.producto}</p>
-                              <p className="text-xs text-muted-foreground">{item.producto.codigo}</p>
+                              <p className="font-medium">{item.producto.nombre}</p>
+                              <p className="text-xs text-muted-foreground">{item.producto.id}</p>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -404,14 +411,14 @@ export default function NuevaVentaPage() {
                 ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
               </p>
               <p className="text-sm opacity-80 mt-2">
-                {carrito.length} productos - Venta {tipoVenta}
+                {carrito.length} productos - Venta {tipoVenta === "MAYOR" ? "Mayorista" : "Minorista"}
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Datos del Cliente</CardTitle>
+              <CardTitle className="text-base">Datos de la Venta</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -423,6 +430,32 @@ export default function NuevaVentaPage() {
                 />
               </div>
 
+              <div>
+                <label className="text-sm text-muted-foreground">Método de pago</label>
+                <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as "Efectivo" | "Transferencia" | "Tarjeta")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Efectivo">
+                      <span className="flex items-center gap-2">
+                        <Banknote className="h-4 w-4" /> Efectivo
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="Transferencia">
+                      <span className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4" /> Transferencia
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="Tarjeta">
+                      <span className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4" /> Tarjeta
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <Button
                 className="w-full h-14 text-lg"
                 size="lg"
@@ -430,7 +463,7 @@ export default function NuevaVentaPage() {
                 disabled={loading || carrito.length === 0}
               >
                 <Printer className="h-5 w-5 mr-2" />
-                {loading ? "Generando..." : "Generar Ticket"}
+                {loading ? "Generando..." : "Cobrar y Generar Ticket"}
               </Button>
             </CardContent>
           </Card>

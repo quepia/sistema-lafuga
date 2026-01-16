@@ -40,7 +40,8 @@
       "Bash(npx tsc --noEmit --skipLibCheck)",
       "Bash(npm run build:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(npx tsc --noEmit)"
+      "Bash(npx tsc --noEmit)",
+      "Bash(tree:*)"
     ]
   }
 }

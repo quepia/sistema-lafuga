@@ -4,9 +4,57 @@
 import { supabase, Producto, ProductoUpdate, calcularMargen } from './supabase';
 
 const TABLA_PRODUCTOS = 'productos';
+const TABLA_VENTAS = 'ventas';
 
 // Re-export Producto type for convenience
 export type { Producto, ProductoUpdate };
+
+// ==================== TIPOS DE VENTAS ====================
+
+export interface VentaProducto {
+  producto_id: string;
+  nombre_producto: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
+export interface Venta {
+  id: string;
+  created_at: string;
+  tipo_venta: 'MAYOR' | 'MENOR';
+  total: number;
+  metodo_pago: string;
+  cliente_nombre: string | null;
+  productos: VentaProducto[];
+}
+
+export interface VentaInsert {
+  tipo_venta: 'MAYOR' | 'MENOR';
+  total: number;
+  metodo_pago?: string;
+  cliente_nombre?: string;
+  productos: VentaProducto[];
+}
+
+export interface VentasPaginadas {
+  total: number;
+  limit: number;
+  offset: number;
+  count: number;
+  ventas: Venta[];
+}
+
+export interface ResumenCaja {
+  fecha: string;
+  total_ventas: number;
+  cantidad_ventas: number;
+  total_efectivo: number;
+  total_transferencia: number;
+  total_tarjeta: number;
+  ventas_mayorista: number;
+  ventas_minorista: number;
+}
 
 export interface ProductosPaginados {
   total: number;
@@ -473,6 +521,163 @@ export const api = {
       },
       categoria_performance,
     };
+  },
+
+  // ==================== VENTAS ====================
+
+  /**
+   * Crea una nueva venta y la guarda en la base de datos
+   */
+  async crearVenta(datos: VentaInsert): Promise<Venta> {
+    const { data, error } = await supabase
+      .from(TABLA_VENTAS)
+      .insert({
+        tipo_venta: datos.tipo_venta,
+        total: datos.total,
+        metodo_pago: datos.metodo_pago || 'Efectivo',
+        cliente_nombre: datos.cliente_nombre || 'Cliente General',
+        productos: datos.productos,
+      })
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Venta;
+  },
+
+  /**
+   * Lista ventas con filtros opcionales y paginación
+   */
+  async listarVentas(params: {
+    fecha_inicio?: string;
+    fecha_fin?: string;
+    tipo_venta?: 'MAYOR' | 'MENOR';
+    metodo_pago?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<VentasPaginadas> {
+    const { fecha_inicio, fecha_fin, tipo_venta, metodo_pago, limit = 50, offset = 0 } = params;
+
+    // Contar total
+    let countQuery = supabase.from(TABLA_VENTAS).select('*', { count: 'exact', head: true });
+
+    if (fecha_inicio) {
+      countQuery = countQuery.gte('created_at', fecha_inicio);
+    }
+    if (fecha_fin) {
+      countQuery = countQuery.lte('created_at', fecha_fin);
+    }
+    if (tipo_venta) {
+      countQuery = countQuery.eq('tipo_venta', tipo_venta);
+    }
+    if (metodo_pago) {
+      countQuery = countQuery.eq('metodo_pago', metodo_pago);
+    }
+
+    const { count, error: countError } = await countQuery;
+    if (countError) handleSupabaseError(countError);
+
+    // Obtener datos
+    let dataQuery = supabase.from(TABLA_VENTAS).select('*').order('created_at', { ascending: false });
+
+    if (fecha_inicio) {
+      dataQuery = dataQuery.gte('created_at', fecha_inicio);
+    }
+    if (fecha_fin) {
+      dataQuery = dataQuery.lte('created_at', fecha_fin);
+    }
+    if (tipo_venta) {
+      dataQuery = dataQuery.eq('tipo_venta', tipo_venta);
+    }
+    if (metodo_pago) {
+      dataQuery = dataQuery.eq('metodo_pago', metodo_pago);
+    }
+
+    dataQuery = dataQuery.range(offset, offset + limit - 1);
+
+    const { data, error } = await dataQuery;
+    if (error) handleSupabaseError(error);
+
+    return {
+      total: count || 0,
+      limit,
+      offset,
+      count: (data as Venta[])?.length || 0,
+      ventas: (data as Venta[]) || [],
+    };
+  },
+
+  /**
+   * Obtiene el resumen de caja para una fecha específica
+   */
+  async obtenerResumenCaja(fecha: string): Promise<ResumenCaja> {
+    // fecha en formato YYYY-MM-DD
+    const fechaInicio = `${fecha}T00:00:00`;
+    const fechaFin = `${fecha}T23:59:59`;
+
+    const { data, error } = await supabase
+      .from(TABLA_VENTAS)
+      .select('*')
+      .gte('created_at', fechaInicio)
+      .lte('created_at', fechaFin);
+
+    if (error) handleSupabaseError(error);
+
+    const ventas = (data as Venta[]) || [];
+
+    const total_ventas = ventas.reduce((sum, v) => sum + v.total, 0);
+    const total_efectivo = ventas
+      .filter(v => v.metodo_pago === 'Efectivo')
+      .reduce((sum, v) => sum + v.total, 0);
+    const total_transferencia = ventas
+      .filter(v => v.metodo_pago === 'Transferencia')
+      .reduce((sum, v) => sum + v.total, 0);
+    const total_tarjeta = ventas
+      .filter(v => v.metodo_pago === 'Tarjeta')
+      .reduce((sum, v) => sum + v.total, 0);
+    const ventas_mayorista = ventas
+      .filter(v => v.tipo_venta === 'MAYOR')
+      .reduce((sum, v) => sum + v.total, 0);
+    const ventas_minorista = ventas
+      .filter(v => v.tipo_venta === 'MENOR')
+      .reduce((sum, v) => sum + v.total, 0);
+
+    return {
+      fecha,
+      total_ventas,
+      cantidad_ventas: ventas.length,
+      total_efectivo,
+      total_transferencia,
+      total_tarjeta,
+      ventas_mayorista,
+      ventas_minorista,
+    };
+  },
+
+  /**
+   * Obtiene una venta por su ID
+   */
+  async obtenerVenta(id: string): Promise<Venta> {
+    const { data, error } = await supabase
+      .from(TABLA_VENTAS)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Venta;
+  },
+
+  /**
+   * Elimina una venta (usar con cuidado)
+   */
+  async eliminarVenta(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLA_VENTAS)
+      .delete()
+      .eq('id', id);
+
+    if (error) handleSupabaseError(error);
   },
 };
 

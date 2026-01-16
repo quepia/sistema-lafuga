@@ -12,11 +12,12 @@ interface VentaDetalle {
 }
 
 interface Venta {
-  id: number
+  id: string
   fecha: string
   cliente_nombre: string
   total: number
   tipo_venta: string
+  metodo_pago?: string
   detalles: VentaDetalle[]
 }
 
@@ -57,7 +58,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
       {/* Info del ticket */}
       <div className="flex justify-between text-xs mb-3">
         <div>
-          <p><strong>Ticket:</strong> #{venta.id.toString().padStart(6, "0")}</p>
+          <p><strong>Ticket:</strong> #{venta.id.slice(0, 8).toUpperCase()}</p>
           <p><strong>Cliente:</strong> {venta.cliente_nombre}</p>
         </div>
         <div className="text-right">
@@ -66,11 +67,16 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
         </div>
       </div>
 
-      {/* Tipo de venta */}
-      <div className="text-center mb-3">
+      {/* Tipo de venta y método de pago */}
+      <div className="flex justify-center gap-2 mb-3">
         <span className="inline-block px-3 py-1 bg-black text-white text-xs font-bold">
           VENTA {venta.tipo_venta.toUpperCase()}
         </span>
+        {venta.metodo_pago && (
+          <span className="inline-block px-3 py-1 bg-gray-700 text-white text-xs font-bold">
+            {venta.metodo_pago.toUpperCase()}
+          </span>
+        )}
       </div>
 
       {/* Tabla de productos */}
@@ -155,8 +161,13 @@ export default function TicketPrint({ venta, onClose }: TicketPrintProps) {
               ${venta.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
             </p>
             <p className="text-muted-foreground">
-              Ticket #{venta.id} - {venta.cliente_nombre}
+              Ticket #{venta.id.slice(0, 8).toUpperCase()} - {venta.cliente_nombre}
             </p>
+            {venta.metodo_pago && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Pago: {venta.metodo_pago}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-2">
