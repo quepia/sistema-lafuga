@@ -74,7 +74,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
           </tr>
         </thead>
         <tbody>
-          {venta.productos.map((detalle, idx) => (
+          {(venta.productos || []).map((detalle, idx) => (
             <tr key={idx} className="border-b border-dashed border-gray-300">
               <td className="py-1 max-w-[120px] truncate" title={detalle.nombre_producto}>
                 {detalle.nombre_producto}
@@ -100,7 +100,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
           </span>
         </div>
         <p className="text-center text-xs mt-2 text-gray-600">
-          {venta.productos.length} productos
+          {(venta.productos || []).length} productos
         </p>
       </div>
 
@@ -207,13 +207,16 @@ export default function TicketPrint({ venta, onClose }: TicketPrintProps) {
           }
 
           .print-container {
-            position: absolute;
+            position: fixed;
             left: 0;
             top: 0;
-            width: 210mm;
+            width: 100%;
+            height: 100%;
             margin: 0;
             padding: 0;
             background: #FFFFFF !important;
+            z-index: 9999;
+            overflow: visible;
           }
 
           /* Cada ticket crece segun su contenido - SIN altura fija ni overflow */
