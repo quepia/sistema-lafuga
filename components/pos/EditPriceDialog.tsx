@@ -132,7 +132,7 @@ export function EditPriceDialog({
           {/* Original prices info */}
           <div className="rounded-lg border p-3 space-y-2">
             <div className="text-sm font-medium">Precios de lista:</div>
-            <div className="grid grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <div>
                 <div className="text-muted-foreground">Precio Menor</div>
                 <div className="font-bold text-[#006AC0]">${formatearPrecio(producto.precio_menor)}</div>
@@ -154,7 +154,7 @@ export function EditPriceDialog({
             <RadioGroup
               value={tipoPrecioSeleccionado}
               onValueChange={(v) => setTipoPrecioSeleccionado(v as "menor" | "mayor")}
-              className="flex gap-4"
+              className="flex flex-col sm:flex-row gap-4"
             >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="menor" id="precio-menor" />
@@ -240,7 +240,7 @@ export function EditPriceDialog({
 
           {/* Results */}
           <div className="rounded-lg border p-4 space-y-3 bg-muted/50">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <div className="text-sm text-muted-foreground">Precio final:</div>
                 <div className="text-2xl font-bold">${formatearPrecio(precioFinal)}</div>
