@@ -2,6 +2,7 @@
 // Sistema de Gestión de Precios - LA FUGA
 
 import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen } from './supabase';
+import { logProductChange } from './supabase-utils';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
@@ -220,6 +221,31 @@ export const api = {
     };
   },
 
+  async obtenerProductosSinCodigo(limit: number = 200): Promise<Producto[]> {
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select("*")
+      .is("codigo_barra", null)
+      .neq("estado", "eliminado")
+      .limit(limit);
+
+    if (error) handleSupabaseError(error);
+
+    return (data as Producto[]) || [];
+  },
+
+  async asignarCodigoBarra(id: string, codigoBarra: string): Promise<Producto> {
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .update({ codigo_barra: codigoBarra })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Producto;
+  },
+
   /**
    * Obtiene TODOS los productos (sin paginación, para estadísticas)
    * Usa múltiples consultas si hay más de 1000 productos
@@ -291,6 +317,13 @@ export const api = {
    * Actualiza un producto existente
    */
   async actualizarProducto(id: string, datos: ProductoUpdate): Promise<Producto> {
+    // Obtener estado anterior para historial
+    const { data: anterior } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select('*')
+      .eq('id', id)
+      .single();
+
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .update({
@@ -302,6 +335,36 @@ export const api = {
       .single();
 
     if (error) handleSupabaseError(error);
+
+    // Registrar cambios en el historial
+    if (anterior && data) {
+      const cambios = Object.keys(datos) as (keyof ProductoUpdate)[];
+      // Campos exentos de registro
+      const ignorar = ['ultima_actualizacion', 'motivo_eliminacion'];
+
+      for (const campo of cambios) {
+        if (ignorar.includes(campo)) continue;
+
+        // Comparar valores (usando '==' para loose equality o '===' si tipos coinciden exacto)
+        // Datos puede traer parcial, data trae todo.
+        // Comparamos anterior[campo] vs data[campo]
+        const valAnterior = anterior[campo as keyof Producto];
+        const valNuevo = data[campo as keyof Producto];
+
+        if (valAnterior != valNuevo) {
+          // Ejecutar en background (no bloquear respuesta)
+          logProductChange(
+            id,
+            id, // Usamos ID como SKU
+            campo,
+            valAnterior,
+            valNuevo,
+            'Actualización manual'
+          ).catch(console.error);
+        }
+      }
+    }
+
     return data as Producto;
   },
 

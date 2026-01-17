@@ -1,7 +1,8 @@
 "use client"
 
+import TicketPrint from "@/components/ticket-print"
 import { useState, useEffect, useCallback } from "react"
-import { Eye, Search, AlertCircle, FileText, Calendar } from "lucide-react"
+import { Eye, Search, AlertCircle, FileText, Calendar, Printer } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import {
@@ -36,6 +37,7 @@ export default function SalesHistoryView() {
     const [error, setError] = useState<string | null>(null)
     const [page, setPage] = useState(1)
     const [selectedSale, setSelectedSale] = useState<Venta | null>(null)
+    const [showTicket, setShowTicket] = useState(false)
     const [filterDate, setFilterDate] = useState("")
 
     const fetchVentas = useCallback(async () => {
@@ -196,9 +198,15 @@ export default function SalesHistoryView() {
                     <DialogHeader>
                         <DialogTitle className="flex items-center justify-between">
                             <span>Detalle de Venta</span>
-                            <span className="text-sm font-normal text-muted-foreground font-mono">
-                                #{selectedSale?.id.slice(0, 8)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                                <Button size="sm" variant="outline" onClick={() => setShowTicket(true)}>
+                                    <Printer className="h-4 w-4 mr-2" />
+                                    Imprimir Ticket
+                                </Button>
+                                <span className="text-sm font-normal text-muted-foreground font-mono">
+                                    #{selectedSale?.id.slice(0, 8)}
+                                </span>
+                            </div>
                         </DialogTitle>
                         <DialogDescription>
                             Realizada el {selectedSale && format(new Date(selectedSale.created_at), "dd 'de' MMMM 'de' yyyy 'a las' HH:mm", { locale: es })}
@@ -231,26 +239,6 @@ export default function SalesHistoryView() {
                                 </div>
                             </div>
 
-                            {/* Authorization & Global Discount Info */}
-                            {(selectedSale.descuento_global || 0) > 0 && (
-                                <Alert className="bg-yellow-50 border-yellow-200">
-                                    <AlertCircle className="h-4 w-4 text-yellow-600" />
-                                    <AlertDescription className="text-yellow-700">
-                                        <strong>Descuento Global Aplicado: </strong>
-                                        ${selectedSale.descuento_global?.toLocaleString("es-AR")} ({selectedSale.descuento_global_porcentaje}%)
-                                        {selectedSale.descuento_global_motivo && (
-                                            <div className="text-xs mt-1">Motivo: "{selectedSale.descuento_global_motivo}"</div>
-                                        )}
-                                        {selectedSale.requirio_autorizacion && (
-                                            <div className="text-xs mt-1 font-semibold flex items-center gap-1">
-                                                <FileText className="h-3 w-3" /> Requirió Autorización
-                                                {selectedSale.autorizado_por && ` (Por: ${selectedSale.autorizado_por})`}
-                                            </div>
-                                        )}
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
                             {/* Products Table */}
                             <div>
                                 <h3 className="font-semibold mb-3">Productos</h3>
@@ -267,7 +255,6 @@ export default function SalesHistoryView() {
                                         <TableBody>
                                             {selectedSale.productos.map((prod: any, idx) => {
                                                 const isCustom = isExtended(prod) && prod.tipo_precio === 'custom';
-                                                const hasLineDiscount = isExtended(prod) && (prod.descuento_linea || 0) > 0;
 
                                                 return (
                                                     <TableRow key={idx}>
@@ -284,23 +271,11 @@ export default function SalesHistoryView() {
                                                                         Precio Manual
                                                                     </span>
                                                                 )}
-                                                                {hasLineDiscount && (
-                                                                    <span className="text-[10px] text-green-600">
-                                                                        Desc. {prod.descuento_linea_porcentaje}% ({prod.motivo_descuento})
-                                                                    </span>
-                                                                )}
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className="text-right">{prod.cantidad}</TableCell>
                                                         <TableCell className="text-right">
-                                                            <div className="flex flex-col items-end">
-                                                                <span>${prod.precio_unitario.toLocaleString("es-AR")}</span>
-                                                                {hasLineDiscount && isExtended(prod) && prod.precio_lista_menor && (
-                                                                    <span className="text-[10px] text-muted-foreground line-through">
-                                                                        ${prod.precio_lista_menor.toLocaleString("es-AR")}
-                                                                    </span>
-                                                                )}
-                                                            </div>
+                                                            ${prod.precio_unitario.toLocaleString("es-AR")}
                                                         </TableCell>
                                                         <TableCell className="text-right font-medium">
                                                             ${prod.subtotal.toLocaleString("es-AR")}
@@ -316,6 +291,14 @@ export default function SalesHistoryView() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Ticket Print Overlay */}
+            {showTicket && selectedSale && (
+                <TicketPrint
+                    venta={selectedSale}
+                    onClose={() => setShowTicket(false)}
+                />
+            )}
         </div>
     )
 }

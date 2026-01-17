@@ -3,23 +3,7 @@
 import { useEffect, useRef } from "react"
 import { X, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface VentaDetalle {
-  nombre_producto: string
-  cantidad: number
-  precio_unitario: number
-  subtotal: number
-}
-
-interface Venta {
-  id: string
-  fecha: string
-  cliente_nombre: string
-  total: number
-  tipo_venta: string
-  metodo_pago?: string
-  detalles: VentaDetalle[]
-}
+import { Venta } from "@/lib/api"
 
 interface TicketPrintProps {
   venta: Venta
@@ -28,7 +12,7 @@ interface TicketPrintProps {
 
 // Componente individual del ticket
 function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number }) {
-  const fecha = new Date(venta.fecha)
+  const fecha = new Date(venta.created_at)
   const fechaFormateada = fecha.toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "2-digit",
@@ -59,7 +43,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
       <div className="flex justify-between text-xs mb-3">
         <div>
           <p><strong>Ticket:</strong> #{venta.id.slice(0, 8).toUpperCase()}</p>
-          <p><strong>Cliente:</strong> {venta.cliente_nombre}</p>
+          <p><strong>Cliente:</strong> {venta.cliente_nombre || 'General'}</p>
         </div>
         <div className="text-right">
           <p><strong>Fecha:</strong> {fechaFormateada}</p>
@@ -90,7 +74,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
           </tr>
         </thead>
         <tbody>
-          {venta.detalles.map((detalle, idx) => (
+          {venta.productos.map((detalle, idx) => (
             <tr key={idx} className="border-b border-dashed border-gray-300">
               <td className="py-1 max-w-[120px] truncate" title={detalle.nombre_producto}>
                 {detalle.nombre_producto}
@@ -116,7 +100,7 @@ function TicketContent({ venta, copyNumber }: { venta: Venta; copyNumber: number
           </span>
         </div>
         <p className="text-center text-xs mt-2 text-gray-600">
-          {venta.detalles.length} productos
+          {venta.productos.length} productos
         </p>
       </div>
 
@@ -161,7 +145,7 @@ export default function TicketPrint({ venta, onClose }: TicketPrintProps) {
               ${venta.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
             </p>
             <p className="text-muted-foreground">
-              Ticket #{venta.id.slice(0, 8).toUpperCase()} - {venta.cliente_nombre}
+              Ticket #{venta.id.slice(0, 8).toUpperCase()} - {venta.cliente_nombre || 'General'}
             </p>
             {venta.metodo_pago && (
               <p className="text-sm text-muted-foreground mt-1">

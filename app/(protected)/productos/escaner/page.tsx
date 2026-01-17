@@ -22,19 +22,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
-
-interface Producto {
-  id: number
-  codigo: string
-  producto: string
-  categoria: string
-  precio_menor: number
-  precio_mayor: number
-  codigo_barra: string | null
-  unidad: string | null
-}
+import { api, Producto } from "@/lib/api"
+import { useZxing } from "react-zxing";
 
 export default function EscanerPage() {
   const [productos, setProductos] = useState<Producto[]>([])
@@ -46,103 +35,80 @@ export default function EscanerPage() {
   const [saving, setSaving] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState<"sin-codigo" | "todos">("sin-codigo")
-  const [cameraActive, setCameraActive] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [scanMode, setScanMode] = useState<"usb" | "camera">("usb")
 
   const barcodeInputRef = useRef<HTMLInputElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const { toast } = useToast()
 
-  // Cargar productos sin codigo de barras
-  const cargarProductosSinCodigo = async () => {
+  // ZXing hook for camera
+  const { ref: cameraRef } = useZxing({
+    onDecodeResult(result) {
+      const code = result.getText();
+      console.log("Barcode detected:", code);
+      if (modalOpen && scanMode === "camera") {
+        setCodigoInput(code);
+        // Optional: Auto-save if desired, but user might want to verify
+        // handleSave(code); 
+        toast({
+          title: "Código detectado",
+          description: code,
+        });
+      }
+    },
+    paused: !modalOpen || scanMode !== "camera",
+  });
+
+  const cargarDatos = useCallback(async () => {
+    setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/productos/sin-codigo-barra?limit=200`)
-      const data = await res.json()
-      setProductosSinCodigo(data.productos || [])
+      const [sinCodigo, todos] = await Promise.all([
+        api.obtenerProductosSinCodigo(),
+        api.listarProductos({ limit: 500 }).then(r => r.productos)
+        // Note: listarProductos returns paginated object
+      ])
+      setProductosSinCodigo(sinCodigo)
+      setProductos(todos)
     } catch (error) {
       console.error("Error cargando productos:", error)
-    }
-  }
-
-  // Cargar todos los productos
-  const cargarTodosProductos = async () => {
-    try {
-      const res = await fetch(`${API_URL}/productos?limit=500`)
-      const data = await res.json()
-      setProductos(data.productos || [])
-    } catch (error) {
-      console.error("Error cargando productos:", error)
-    }
-  }
-
-  // Cargar datos iniciales
-  useEffect(() => {
-    const cargarDatos = async () => {
-      setLoading(true)
-      await Promise.all([cargarProductosSinCodigo(), cargarTodosProductos()])
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los productos",
+        variant: "destructive"
+      })
+    } finally {
       setLoading(false)
     }
+  }, [toast])
+
+  useEffect(() => {
     cargarDatos()
-  }, [])
+  }, [cargarDatos])
 
-  // Filtrar productos por busqueda
-  const productosFiltrados = (activeTab === "sin-codigo" ? productosSinCodigo : productos)
-    .filter(p => {
-      if (!searchQuery) return true
-      const query = searchQuery.toLowerCase()
-      return (
-        p.producto.toLowerCase().includes(query) ||
-        p.codigo.toLowerCase().includes(query) ||
-        (p.codigo_barra && p.codigo_barra.toLowerCase().includes(query))
-      )
-    })
-
-  // Seleccionar producto para asignar codigo
   const seleccionarProducto = (producto: Producto) => {
     setSelectedProducto(producto)
     setCodigoInput(producto.codigo_barra || "")
     setModalOpen(true)
-    setCameraActive(false)
-    setCameraError(null)
+    setScanMode("usb") // Default to USB/Manual
 
-    // Focus en el input despues de abrir el modal
     setTimeout(() => {
       barcodeInputRef.current?.focus()
     }, 100)
   }
 
-  // Guardar codigo de barras
   const guardarCodigo = async () => {
-    if (!selectedProducto || !codigoInput.trim()) {
-      toast({
-        title: "Error",
-        description: "Ingresa un codigo de barras valido",
-        variant: "destructive"
-      })
-      return
-    }
+    if (!selectedProducto || !codigoInput.trim()) return
 
     setSaving(true)
     try {
-      const res = await fetch(`${API_URL}/productos/${selectedProducto.id}/codigo-barra`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codigo_barra: codigoInput.trim() })
-      })
-
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.detail || "Error al guardar")
-      }
+      await api.asignarCodigoBarra(selectedProducto.id, codigoInput.trim())
 
       toast({
-        title: "Codigo asignado",
-        description: `Codigo ${codigoInput} asignado a ${selectedProducto.producto}`,
+        title: "Código asignado",
+        description: `Código ${codigoInput} asignado a ${selectedProducto.nombre}`,
       })
 
-      // Actualizar listas
-      await Promise.all([cargarProductosSinCodigo(), cargarTodosProductos()])
+      // Refresh text
+      await cargarDatos()
 
       setModalOpen(false)
       setSelectedProducto(null)
@@ -150,7 +116,7 @@ export default function EscanerPage() {
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar el codigo",
+        description: "No se pudo guardar el código",
         variant: "destructive"
       })
     } finally {
@@ -158,7 +124,6 @@ export default function EscanerPage() {
     }
   }
 
-  // Manejar Enter en el input (para lector USB)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && codigoInput.trim()) {
       e.preventDefault()
@@ -166,55 +131,26 @@ export default function EscanerPage() {
     }
   }
 
-  // Activar camara
-  const activarCamara = async () => {
-    try {
-      setCameraError(null)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
-      setCameraActive(true)
-    } catch (error) {
-      console.error("Error accediendo a la camara:", error)
-      setCameraError("No se pudo acceder a la camara. Verifica los permisos.")
-    }
-  }
-
-  // Desactivar camara
-  const desactivarCamara = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
-      streamRef.current = null
-    }
-    setCameraActive(false)
-  }, [])
-
-  // Limpiar al cerrar modal
-  useEffect(() => {
-    if (!modalOpen) {
-      desactivarCamara()
-    }
-  }, [modalOpen, desactivarCamara])
-
-  // Limpiar al desmontar
-  useEffect(() => {
-    return () => {
-      desactivarCamara()
-    }
-  }, [desactivarCamara])
+  // Filter logic
+  const productosFiltrados = (activeTab === "sin-codigo" ? productosSinCodigo : productos)
+    .filter(p => {
+      if (!searchQuery) return true
+      const query = searchQuery.toLowerCase()
+      return (
+        (p.nombre && p.nombre.toLowerCase().includes(query)) ||
+        (p.id && p.id.toLowerCase().includes(query)) ||
+        (p.codigo_barra && p.codigo_barra.toLowerCase().includes(query))
+      )
+    })
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-brand-dark">Asignar Codigos de Barras</h1>
+          <h1 className="text-2xl font-bold text-brand-dark">Asignar Códigos de Barras</h1>
           <p className="text-muted-foreground">
-            {productosSinCodigo.length} productos sin codigo asignado
+            {productosSinCodigo.length} productos sin código asignado
           </p>
         </div>
         <Badge variant="outline" className="text-lg px-4 py-2">
@@ -240,7 +176,7 @@ export default function EscanerPage() {
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "sin-codigo" | "todos")}>
               <TabsList>
                 <TabsTrigger value="sin-codigo">
-                  Sin codigo ({productosSinCodigo.length})
+                  Sin código ({productosSinCodigo.length})
                 </TabsTrigger>
                 <TabsTrigger value="todos">
                   Todos ({productos.length})
@@ -273,11 +209,10 @@ export default function EscanerPage() {
               <Table>
                 <TableHeader className="sticky top-0 bg-white">
                   <TableRow>
-                    <TableHead>Codigo</TableHead>
                     <TableHead>Producto</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead>Codigo Barra</TableHead>
-                    <TableHead className="text-right">Accion</TableHead>
+                    <TableHead>Categoría</TableHead>
+                    <TableHead>Código Barra</TableHead>
+                    <TableHead className="text-right">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -287,11 +222,9 @@ export default function EscanerPage() {
                       className="cursor-pointer hover:bg-muted"
                       onClick={() => seleccionarProducto(producto)}
                     >
-                      <TableCell className="font-mono text-sm">
-                        {producto.codigo}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate">
-                        {producto.producto}
+                      <TableCell className="max-w-[200px] truncate font-medium">
+                        {producto.nombre}
+                        <div className="text-xs text-muted-foreground font-mono">{producto.id.slice(0, 8)}</div>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{producto.categoria}</Badge>
@@ -328,7 +261,7 @@ export default function EscanerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Barcode className="h-5 w-5" />
-              Asignar Codigo de Barras
+              Asignar Código de Barras
             </DialogTitle>
           </DialogHeader>
 
@@ -336,27 +269,27 @@ export default function EscanerPage() {
             <div className="space-y-4">
               {/* Info del producto */}
               <div className="p-4 bg-muted rounded-lg">
-                <p className="font-bold text-lg">{selectedProducto.producto}</p>
+                <p className="font-bold text-lg">{selectedProducto.nombre}</p>
                 <p className="text-sm text-muted-foreground">
-                  Codigo: {selectedProducto.codigo} | {selectedProducto.categoria}
+                  ID: {selectedProducto.id} | {selectedProducto.categoria}
                 </p>
                 {selectedProducto.codigo_barra && (
                   <p className="text-sm mt-1">
-                    Codigo actual: <span className="font-mono">{selectedProducto.codigo_barra}</span>
+                    Código actual: <span className="font-mono">{selectedProducto.codigo_barra}</span>
                   </p>
                 )}
               </div>
 
               {/* Tabs para modo de entrada */}
-              <Tabs defaultValue="usb">
+              <Tabs value={scanMode} onValueChange={(v) => setScanMode(v as "usb" | "camera")}>
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="usb" onClick={() => desactivarCamara()}>
+                  <TabsTrigger value="usb">
                     <Keyboard className="h-4 w-4 mr-2" />
                     Lector USB
                   </TabsTrigger>
-                  <TabsTrigger value="camera" onClick={activarCamara}>
+                  <TabsTrigger value="camera">
                     <Camera className="h-4 w-4 mr-2" />
-                    Camara
+                    Cámara
                   </TabsTrigger>
                 </TabsList>
 
@@ -364,12 +297,12 @@ export default function EscanerPage() {
                 <TabsContent value="usb" className="space-y-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">
-                      Escanea o escribe el codigo de barras:
+                      Escanea o escribe el código de barras:
                     </label>
                     <Input
                       ref={barcodeInputRef}
                       type="text"
-                      placeholder="Escanea el codigo de barras..."
+                      placeholder="Escanea el código de barras..."
                       className="text-xl h-14 font-mono text-center"
                       value={codigoInput}
                       onChange={(e) => setCodigoInput(e.target.value)}
@@ -377,66 +310,40 @@ export default function EscanerPage() {
                       autoFocus
                     />
                     <p className="text-xs text-muted-foreground mt-2">
-                      El lector USB escribira el codigo y presionara Enter automaticamente
+                      El lector USB escribirá el código y presionará Enter automáticamente
                     </p>
                   </div>
                 </TabsContent>
 
-                {/* Modo Camara */}
+                {/* Modo Cámara */}
                 <TabsContent value="camera" className="space-y-4">
-                  {cameraError ? (
-                    <div className="text-center py-8">
-                      <AlertCircle className="h-12 w-12 mx-auto mb-2 text-destructive" />
-                      <p className="text-destructive">{cameraError}</p>
-                      <Button
-                        variant="outline"
-                        className="mt-4"
-                        onClick={activarCamara}
-                      >
-                        Reintentar
-                      </Button>
-                    </div>
-                  ) : cameraActive ? (
-                    <div className="space-y-4">
-                      <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                        <video
-                          ref={videoRef}
-                          autoPlay
-                          playsInline
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="w-48 h-24 border-2 border-red-500 rounded" />
-                        </div>
+                  <div className="space-y-4">
+                    <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+                      {/* Video Element for ZXing */}
+                      <video ref={cameraRef} className="w-full h-full object-cover" />
+
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-64 h-32 border-2 border-red-500 rounded bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
                       </div>
-                      <p className="text-sm text-center text-muted-foreground">
-                        Apunta al codigo de barras. La deteccion requiere la libreria react-zxing.
-                      </p>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">
-                          O ingresa el codigo manualmente:
-                        </label>
+                    </div>
+                    <p className="text-sm text-center text-muted-foreground">
+                      Apunta al código de barras dentro del recuadro rojo.
+                    </p>
+
+                    {/* Manual input fallback inside camera mode */}
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Corrección manual:</label>
+                      <div className="flex gap-2">
                         <Input
-                          type="text"
-                          placeholder="Codigo de barras..."
-                          className="font-mono"
                           value={codigoInput}
                           onChange={(e) => setCodigoInput(e.target.value)}
+                          placeholder="Código detectado..."
+                          className="font-mono"
                         />
+                        <Button size="sm" onClick={guardarCodigo}>OK</Button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Camera className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-muted-foreground mb-4">
-                        La camara se activara automaticamente
-                      </p>
-                      <Button onClick={activarCamara}>
-                        <Camera className="h-4 w-4 mr-2" />
-                        Activar Camara
-                      </Button>
-                    </div>
-                  )}
+                  </div>
                 </TabsContent>
               </Tabs>
 

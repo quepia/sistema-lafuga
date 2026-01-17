@@ -23,12 +23,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { api, ReportesData, ApiError } from "@/lib/api"
+import { api, ReportesData, ApiError, Producto } from "@/lib/api"
+import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 
 export default function ReportesPage() {
   const [reportes, setReportes] = useState<ReportesData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingProduct, setEditingProduct] = useState<Producto | null>(null)
+
+  const handleProductClick = async (id: string) => {
+    try {
+      const producto = await api.obtenerProducto(id)
+      setEditingProduct(producto)
+    } catch (error) {
+      console.error("Error fetching product:", error)
+    }
+  }
 
   const fetchReportes = async () => {
     setLoading(true)
@@ -283,7 +294,8 @@ export default function ReportesPage() {
                 {reportes?.alertas.productos_margen_negativo.slice(0, 10).map((p) => (
                   <div
                     key={p.id}
-                    className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100"
+                    className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100 cursor-pointer hover:bg-red-100 transition-colors"
+                    onClick={() => handleProductClick(p.id)}
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{p.nombre}</p>
@@ -340,7 +352,8 @@ export default function ReportesPage() {
                 {reportes?.alertas.productos_sin_precio.slice(0, 10).map((p) => (
                   <div
                     key={p.id}
-                    className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-100"
+                    className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-100 cursor-pointer hover:bg-amber-100 transition-colors"
+                    onClick={() => handleProductClick(p.id)}
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{p.nombre}</p>
@@ -431,6 +444,15 @@ export default function ReportesPage() {
           )}
         </CardContent>
       </Card>
+      <ProductFormDialog
+        open={!!editingProduct}
+        onOpenChange={(open) => !open && setEditingProduct(null)}
+        productoEditar={editingProduct}
+        onSuccess={() => {
+          setEditingProduct(null)
+          fetchReportes()
+        }}
+      />
     </div>
   )
 }
