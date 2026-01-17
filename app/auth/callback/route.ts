@@ -7,38 +7,51 @@ export async function GET(request: Request) {
     const code = searchParams.get("code")
     const next = searchParams.get("next") ?? "/dashboard"
 
-    if (code) {
-        const cookieStore = await cookies()
-        const supabase = createServerClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            {
-                cookies: {
-                    getAll() {
-                        return cookieStore.getAll()
+    console.log(`[Auth Callback] Processing code: ${code?.substring(0, 5)}... in origin: ${origin}`)
+
+    try {
+        if (code) {
+            const cookieStore = await cookies()
+            const supabase = createServerClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                {
+                    cookies: {
+                        getAll() {
+                            return cookieStore.getAll()
+                        },
+                        setAll(cookiesToSet) {
+                            try {
+                                console.log(`[Auth Callback] Setting cookies: ${cookiesToSet.length}`)
+                                cookiesToSet.forEach(({ name, value, options }) =>
+                                    cookieStore.set(name, value, options)
+                                )
+                            } catch (err) {
+                                console.error("[Auth Callback] Cookie set error:", err)
+                            }
+                        },
                     },
-                    setAll(cookiesToSet) {
-                        try {
-                            cookiesToSet.forEach(({ name, value, options }) =>
-                                cookieStore.set(name, value, options)
-                            )
-                        } catch {
-                            // The `setAll` method was called from a Server Component.
-                            // This can be ignored if you have middleware refreshing
-                            // user sessions.
-                        }
-                    },
-                },
+                }
+            )
+
+            console.log("[Auth Callback] Exchanging code...")
+            const { error } = await supabase.auth.exchangeCodeForSession(code)
+            if (!error) {
+                console.log(`[Auth Callback] Success! Redirecting to ${origin}${next}`)
+                return NextResponse.redirect(`${origin}${next}`)
+            } else {
+                console.error("[Auth Callback] Exchange error:", error)
+                return NextResponse.redirect(`${origin}/login?error=exchange_failed&message=${error.message}`)
             }
-        )
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) {
-            // Check whitelist before redirecting?
-            // No, middleware handles checking whitelist on next request to /dashboard
-            return NextResponse.redirect(`${origin}${next}`)
+        } else {
+            console.warn("[Auth Callback] No code found")
         }
+    } catch (e) {
+        console.error("[Auth Callback] CRITICAL error:", e)
+        return NextResponse.redirect(`${origin}/login?error=server_error`)
     }
 
-    // return the user to an error page with instructions
-    return NextResponse.redirect(`${origin}/login?error=auth-code-error`)
+    // Fallback
+    console.log("[Auth Callback] Fallback redirect")
+    return NextResponse.redirect(`${origin}/login?error=no_code`)
 }
