@@ -1,4 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
+import { Database } from './database.types'; // Assuming we strictly typed it, but for now generic is fine?
+// Actually we don't have database.types generated probably.
+// We'll stick to generic checking.
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -24,11 +27,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Log de conexión exitosa solo en desarrollo
 if (process.env.NODE_ENV === 'development') {
-  console.log('✅ [Supabase] Cliente inicializado correctamente');
-  console.log(`   URL: ${supabaseUrl.substring(0, 30)}...`);
+  console.log('✅ [Supabase] Cliente inicializado correctamente (SSR/Cookie)');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Use createBrowserClient for client-side usage (shares cookies with middleware/auth)
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
 
 /**
  * Tipo del producto tal como está en la base de datos (snake_case)

@@ -6,127 +6,120 @@ import {
   useState,
   useEffect,
   useCallback,
-  useRef,
   ReactNode,
 } from "react"
 import { useRouter } from "next/navigation"
+import { createBrowserClient } from "@supabase/ssr"
+import { User as SupabaseUser } from "@supabase/supabase-js"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
-
-// Cookie helper functions
-function setCookie(name: string, value: string, days: number = 7) {
-  const expires = new Date()
-  expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000)
-  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`
-}
-
-function deleteCookie(name: string) {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:01 GMT;path=/`
-}
-
-interface User {
-  id: number
-  email: string
-  name: string
-  picture: string | null
+interface AppUser extends SupabaseUser {
   role: string
-  created_at: string | null
-  last_login: string | null
 }
 
 interface AuthContextType {
-  user: User | null
-  token: string | null
+  user: AppUser | null
   loading: boolean
-  login: () => void
-  logout: () => void
-  setToken: (token: string) => Promise<boolean>
+  login: () => Promise<void>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setTokenState] = useState<string | null>(null)
+  const [user, setUser] = useState<AppUser | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
-  const initializedRef = useRef(false)
 
-  // Load token from localStorage on mount and sync with cookie
-  useEffect(() => {
-    if (initializedRef.current) return
-    initializedRef.current = true
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-    const storedToken = localStorage.getItem("access_token")
-    if (storedToken) {
-      setTokenState(storedToken)
-      setCookie("access_token", storedToken, 7)
-      fetchUser(storedToken)
-    } else {
-      setLoading(false)
-    }
-  }, [])
-
-  const fetchUser = async (accessToken: string): Promise<boolean> => {
+  const fetchUserRole = useCallback(async (authUser: SupabaseUser) => {
     try {
-      const response = await fetch(`${API_URL}/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
+      const { data, error } = await supabase
+        .from("authorized_users")
+        .select("role")
+        .eq("email", authUser.email!)
+        .single()
 
-      if (response.ok) {
-        const userData = await response.json()
-        setUser(userData)
-        setLoading(false)
-        return true
-      } else {
-        localStorage.removeItem("access_token")
-        deleteCookie("access_token")
-        setTokenState(null)
-        setUser(null)
-        setLoading(false)
-        return false
+      if (data) {
+        return data.role
       }
-    } catch (error) {
-      console.error("Error fetching user:", error)
-      localStorage.removeItem("access_token")
-      deleteCookie("access_token")
-      setTokenState(null)
-      setUser(null)
-      setLoading(false)
-      return false
+      return null
+    } catch (e) {
+      console.error("Error fetching user role", e)
+      return null
     }
-  }
+  }, [supabase])
 
-  const login = useCallback(() => {
-    window.location.href = `${API_URL}/auth/login/google`
-  }, [])
+  useEffect(() => {
+    const initializeAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
 
-  const logout = useCallback(() => {
-    localStorage.removeItem("access_token")
-    deleteCookie("access_token")
-    setTokenState(null)
+      if (session?.user) {
+        const role = await fetchUserRole(session.user)
+        if (role) {
+          // Merge Supabase user with our role
+          setUser({ ...session.user, role })
+        } else {
+          // User authenticated but not in whitelist
+          // We let middleware handle the redirect, but we can also set user to null or special state
+          // Setting user to null might cause "loading" loops if not careful.
+          // We'll set user but with no role? Or null?
+          // If we set User, app thinks logged in.
+          // But middleware redirects to /unauthorized.
+          setUser(null)
+        }
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    }
+
+    initializeAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const role = await fetchUserRole(session.user)
+        if (role) {
+          setUser({ ...session.user, role })
+        } else {
+          setUser(null)
+        }
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase, fetchUserRole])
+
+  const login = useCallback(async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+  }, [supabase])
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut()
     setUser(null)
     router.push("/login")
-  }, [router])
-
-  const setToken = useCallback(async (newToken: string): Promise<boolean> => {
-    localStorage.setItem("access_token", newToken)
-    setCookie("access_token", newToken, 7)
-    setTokenState(newToken)
-    return await fetchUser(newToken)
-  }, [])
+  }, [supabase, router])
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        token,
         loading,
         login,
         logout,
-        setToken,
       }}
     >
       {children}
