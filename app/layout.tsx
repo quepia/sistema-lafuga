@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next/font/google"
+import type { Metadata } from "next"
 import { Montserrat } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"

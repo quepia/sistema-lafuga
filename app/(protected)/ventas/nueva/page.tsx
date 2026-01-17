@@ -22,12 +22,14 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/contexts/auth-context"
 import TicketPrint from "@/components/ticket-print"
 import { api, Producto, VentaProductoExtendido } from "@/lib/api"
 import { EditPriceDialog } from "@/components/pos/EditPriceDialog"
 import { GlobalDiscountDialog } from "@/components/pos/GlobalDiscountDialog"
 import { SaleLineItem } from "@/components/pos/SaleLineItem"
 import { formatearPrecio } from "@/lib/supabase-utils"
+import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 
 interface CarritoItem {
   producto: Producto
@@ -75,11 +77,12 @@ export default function NuevaVentaPage() {
   const [descuentoGlobalMotivo, setDescuentoGlobalMotivo] = useState("")
   const [showGlobalDiscountDialog, setShowGlobalDiscountDialog] = useState(false)
 
-  // Edit price dialog state - controlled by SaleLineItem now
-  // const [editingItem, setEditingItem] = useState<CarritoItem | null>(null)
+  // Product creation state
+  const [creatingProduct, setCreatingProduct] = useState(false)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+  const { user } = useAuth()
 
   // Buscar productos usando api.ts directamente
   const buscarProductos = async (query: string) => {
@@ -356,17 +359,26 @@ export default function NuevaVentaPage() {
           {/* Buscador */}
           <Card>
             <CardContent className="p-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Buscar producto por nombre o codigo..."
-                  className="pl-10 text-lg h-14"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  autoFocus
-                />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Buscar producto por nombre o codigo..."
+                    className="pl-10 text-lg h-14"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  className="h-14 w-14 shrink-0 bg-[#006AC0] hover:bg-[#005a9e]"
+                  onClick={() => setCreatingProduct(true)}
+                  title="Crear nuevo producto"
+                >
+                  <Plus className="h-6 w-6" />
+                </Button>
               </div>
 
               {/* Resultados de busqueda */}
@@ -424,15 +436,14 @@ export default function NuevaVentaPage() {
                     <SaleLineItem
                       key={item.producto.id}
                       item={item}
-                      onUpdatePrice={(newPrice, motivo) =>
-                        actualizarPrecioLinea(item.producto.id, newPrice, item.tipoPrecio, motivo)
+                      onUpdatePrice={(newPrice, tipoPrecio, motivo) =>
+                        actualizarPrecioLinea(item.producto.id, newPrice, tipoPrecio, motivo)
                       }
                       onUpdateQuantity={(newQty) =>
                         actualizarCantidad(item.producto.id, newQty)
                       }
                       onRemove={() => eliminarDelCarrito(item.producto.id)}
-                    // You can pass user role here if available in context
-                    // userRole={user?.role} 
+                      userRole={user?.role}
                     />
                   ))}
                 </div>
@@ -557,6 +568,19 @@ export default function NuevaVentaPage() {
         onOpenChange={setShowGlobalDiscountDialog}
         subtotal={subtotal}
         onApply={aplicarDescuentoGlobal}
+      />
+
+      {/* Dialogo de Nuevo Producto */}
+      <ProductFormDialog
+        open={creatingProduct}
+        onOpenChange={setCreatingProduct}
+        onSuccess={(producto) => {
+          agregarAlCarrito(producto)
+          toast({
+            title: "Producto creado y agregado",
+            description: producto.nombre
+          })
+        }}
       />
     </div>
   )

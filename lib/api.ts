@@ -1,14 +1,14 @@
 // API Service para comunicación directa con Supabase
 // Sistema de Gestión de Precios - LA FUGA
 
-import { supabase, Producto, ProductoUpdate, ProductoEnVenta, HistorialProducto, calcularMargen } from './supabase';
+import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen } from './supabase';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
 const TABLA_HISTORIAL = 'historial_productos';
 
 // Re-export types for convenience
-export type { Producto, ProductoUpdate, ProductoEnVenta, HistorialProducto };
+export type { Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto };
 
 // ==================== TIPOS DE VENTAS ====================
 
@@ -156,14 +156,18 @@ export const api = {
     categoria?: string;
     precio_min?: number;
     precio_max?: number;
+    incluirEliminados?: boolean;
     limit?: number;
     offset?: number;
   } = {}): Promise<ProductosPaginados> {
-    const { query, categoria, precio_min, precio_max, limit = 50, offset = 0 } = params;
+    const { query, categoria, precio_min, precio_max, incluirEliminados = false, limit = 50, offset = 0 } = params;
 
     // Primero obtener el total exacto (sin límite de 1000)
     let countQuery = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head: true });
 
+    if (!incluirEliminados) {
+      countQuery = countQuery.neq('estado', 'eliminado');
+    }
     if (categoria) {
       countQuery = countQuery.eq('categoria', categoria);
     }
@@ -183,6 +187,9 @@ export const api = {
     // Luego obtener los productos paginados
     let dataQuery = supabase.from(TABLA_PRODUCTOS).select('*');
 
+    if (!incluirEliminados) {
+      dataQuery = dataQuery.neq('estado', 'eliminado');
+    }
     if (categoria) {
       dataQuery = dataQuery.eq('categoria', categoria);
     }
@@ -286,8 +293,30 @@ export const api = {
   async actualizarProducto(id: string, datos: ProductoUpdate): Promise<Producto> {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
-      .update(datos)
+      .update({
+        ...datos,
+        ultima_actualizacion: new Date().toISOString()
+      })
       .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Producto;
+  },
+
+  /**
+   * Crea un nuevo producto
+   */
+  async crearProducto(datos: ProductoInsert): Promise<Producto> {
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .insert({
+        ...datos,
+        created_at: new Date().toISOString(),
+        ultima_actualizacion: new Date().toISOString(),
+        estado: 'activo'
+      })
       .select()
       .single();
 
@@ -845,6 +874,20 @@ export const api = {
       .from(TABLA_HISTORIAL)
       .select('*')
       .eq('id_producto', id_producto)
+      .order('created_at', { ascending: false })
+      .limit(limite);
+
+    if (error) handleSupabaseError(error);
+    return (data as HistorialProducto[]) || [];
+  },
+
+  /**
+   * Get recent product history (across all products)
+   */
+  async obtenerHistorialReciente(limite: number = 50): Promise<HistorialProducto[]> {
+    const { data, error } = await supabase
+      .from(TABLA_HISTORIAL)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(limite);
 

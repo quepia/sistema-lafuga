@@ -21,7 +21,7 @@ export interface CarritoItem {
 
 interface Props {
   item: CarritoItem
-  onUpdatePrice: (newPrice: number, motivo: string) => void
+  onUpdatePrice: (newPrice: number, tipoPrecio: 'menor' | 'mayor' | 'custom', motivo: string) => void
   onUpdateQuantity: (newQty: number) => void
   onRemove: () => void
   userRole?: string
@@ -29,7 +29,7 @@ interface Props {
 
 export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, userRole }: Props) {
   const [editingPrice, setEditingPrice] = useState(false)
-  
+
   // Adapt CarritoItem to ProductoEnVenta format for the dialog
   const productoParaDialogo = {
     id_producto: item.producto.id,
@@ -51,15 +51,15 @@ export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, 
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{item.producto.nombre}</span>
           {item.tipoPrecio === 'custom' && (
-             <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
-               Modificado
-             </Badge>
+            <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+              Modificado
+            </Badge>
           )}
         </div>
         <div className="text-xs text-muted-foreground truncate">
           {item.producto.id} • {item.producto.categoria}
         </div>
-        
+
         {item.descuentoLineaPorcentaje && item.descuentoLineaPorcentaje > 0 && (
           <div className="text-xs text-green-600 mt-1 font-medium">
             💰 Descuento: -{item.descuentoLineaPorcentaje.toFixed(1)}%
@@ -85,12 +85,15 @@ export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, 
       <div className="flex items-center gap-2 min-w-[140px] justify-end">
         {editingPrice ? (
           <EditPriceDialog
+            open={true}
+            onOpenChange={setEditingPrice}
             producto={productoParaDialogo as any} // Cast to any to avoid strict type mismatch
-            onSave={(newPrice, motivo) => {
-              onUpdatePrice(newPrice, motivo)
+            tipoPrecioActual={item.tipoPrecio === 'mayor' ? 'mayor' : 'menor'}
+            precioActual={item.precioUnitario}
+            onSave={(newPrice, tipoPrecio, motivo) => {
+              onUpdatePrice(newPrice, tipoPrecio, motivo)
               setEditingPrice(false)
             }}
-            onCancel={() => setEditingPrice(false)}
             userRole={userRole}
           />
         ) : (
@@ -102,9 +105,9 @@ export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, 
               <Edit2 className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             {item.tipoPrecio !== 'custom' && (
-                <div className="text-[10px] text-muted-foreground">
-                    Lista: ${item.precioOriginal.toLocaleString('es-AR')}
-                </div>
+              <div className="text-[10px] text-muted-foreground">
+                Lista: ${item.precioOriginal.toLocaleString('es-AR')}
+              </div>
             )}
             {item.tipoPrecio === 'custom' && (
               <div className="text-[10px] line-through text-muted-foreground">

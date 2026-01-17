@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info } from "lucide-react"
+import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info, Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,14 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +23,7 @@ import { useCategorias } from "@/hooks/use-categorias"
 import { toast } from "sonner"
 import { PrecioUnitario } from "@/components/productos/PrecioUnitario"
 import { DeleteProductDialog } from "@/components/productos/DeleteProductDialog"
+import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 
 const ITEMS_PER_PAGE = 20
 
@@ -42,17 +35,11 @@ export default function PriceConsultationView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
+  const [showDeleted, setShowDeleted] = useState(false)
 
-  // Estado para el modal de edición
+  // Estado para el modal de edición/creación
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null)
-  const [editPrecioMenor, setEditPrecioMenor] = useState("")
-  const [editPrecioMayor, setEditPrecioMayor] = useState("")
-  const [editCostoCompra, setEditCostoCompra] = useState("")
-  const [editDescripcion, setEditDescripcion] = useState("")
-  const [editPesoNeto, setEditPesoNeto] = useState("")
-  const [editVolumenNeto, setEditVolumenNeto] = useState("")
-  const [editPermiteVentaFraccionada, setEditPermiteVentaFraccionada] = useState(false)
-  const [updating, setUpdating] = useState(false)
+  const [creatingProduct, setCreatingProduct] = useState(false)
 
   // Estado para el modal de eliminación
   const [deletingProduct, setDeletingProduct] = useState<Producto | null>(null)
@@ -69,6 +56,7 @@ export default function PriceConsultationView() {
       const result = await api.listarProductos({
         query: searchQuery || undefined,
         categoria: selectedCategory !== "all" ? selectedCategory : undefined,
+        incluirEliminados: showDeleted,
         limit: ITEMS_PER_PAGE,
         offset,
       })
@@ -84,7 +72,7 @@ export default function PriceConsultationView() {
     } finally {
       setLoading(false)
     }
-  }, [searchQuery, selectedCategory, offset])
+  }, [searchQuery, selectedCategory, showDeleted, offset])
 
   // Debounce para búsqueda
   useEffect(() => {
@@ -103,89 +91,13 @@ export default function PriceConsultationView() {
     }
   }, [fetchProductos])
 
-  // Reset offset cuando cambia la búsqueda o categoría
+  // Reset offset cuando cambia la búsqueda, categoría o filtro de eliminados
   useEffect(() => {
     setOffset(0)
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, showDeleted])
 
-  // Función para abrir modal de edición
-  const handleEdit = (producto: Producto) => {
-    setEditingProduct(producto)
-    setEditPrecioMenor(producto.precio_menor.toString())
-    setEditPrecioMayor(producto.precio_mayor.toString())
-    setEditCostoCompra(producto.costo.toString())
-    setEditDescripcion(producto.descripcion || "")
-    setEditPesoNeto(producto.peso_neto?.toString() || "")
-    setEditVolumenNeto(producto.volumen_neto?.toString() || "")
-    setEditPermiteVentaFraccionada(producto.permite_venta_fraccionada || false)
-  }
-
-  // Check if product category should show peso_neto field
-  const mostrarCampoPesoNeto = (categoria: string | null) => {
-    return categoria === "MASCOTAS"
-  }
-
-  // Check if product category should show volumen_neto field
-  const mostrarCampoVolumenNeto = (categoria: string | null) => {
-    const categoriasSueltos = ["SUELTOS", "QUIMICA", "SUELTOS - QUIMICA", "SUELTOS/QUIMICA"]
-    return categoriasSueltos.includes(categoria || "")
-  }
-
-  // Función para guardar cambios
-  const handleSave = async () => {
-    if (!editingProduct) return
-
-    const precioMenor = parseFloat(editPrecioMenor)
-    const precioMayor = parseFloat(editPrecioMayor)
-    const costoCompra = parseFloat(editCostoCompra)
-    const pesoNeto = editPesoNeto ? parseFloat(editPesoNeto) : null
-    const volumenNeto = editVolumenNeto ? parseFloat(editVolumenNeto) : null
-
-    if (isNaN(precioMenor) || isNaN(precioMayor) || isNaN(costoCompra) || precioMenor < 0 || precioMayor < 0 || costoCompra < 0) {
-      toast.error("Los precios y el costo deben ser numeros validos mayores o iguales a 0")
-      return
-    }
-
-    if (pesoNeto !== null && (isNaN(pesoNeto) || pesoNeto < 0)) {
-      toast.error("El peso neto debe ser un numero valido mayor o igual a 0")
-      return
-    }
-
-    if (volumenNeto !== null && (isNaN(volumenNeto) || volumenNeto < 0)) {
-      toast.error("El volumen neto debe ser un numero valido mayor o igual a 0")
-      return
-    }
-
-    setUpdating(true)
-
-    try {
-      const updated = await api.actualizarProducto(editingProduct.id, {
-        precio_menor: precioMenor,
-        precio_mayor: precioMayor,
-        costo: costoCompra,
-        descripcion: editDescripcion || null,
-        peso_neto: pesoNeto,
-        volumen_neto: volumenNeto,
-        permite_venta_fraccionada: editPermiteVentaFraccionada,
-      })
-
-      // Actualizar el producto en la lista
-      setProductos((prev) =>
-        prev.map((p) => (p.id === updated.id ? updated : p))
-      )
-
-      toast.success(`Producto "${editingProduct.nombre}" actualizado correctamente`)
-      setEditingProduct(null)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        toast.error(err.message)
-      } else {
-        toast.error("Error al actualizar el producto")
-      }
-    } finally {
-      setUpdating(false)
-    }
-  }
+  // Función para abrir modal de edición (ahora solo setea el estado)
+  // handleEdit ya no necesita setear estados individuales
 
   // Función para eliminar producto (soft delete)
   const handleDelete = async (motivo: string) => {
@@ -240,7 +152,22 @@ export default function PriceConsultationView() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex gap-2 sm:gap-4">
+            <div className="flex gap-2 sm:gap-4 items-center">
+              <Button
+                onClick={() => setCreatingProduct(true)}
+                className="bg-[#006AC0] hover:bg-[#005a9e] whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Nuevo Producto</span>
+              </Button>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="show-deleted"
+                  checked={showDeleted}
+                  onCheckedChange={(c) => setShowDeleted(c === true)}
+                />
+                <Label htmlFor="show-deleted" className="text-sm cursor-pointer select-none">Mostrar eliminados</Label>
+              </div>
               <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                 <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
                   <SelectValue placeholder="Categoría" />
@@ -317,6 +244,11 @@ export default function PriceConsultationView() {
                     <Badge variant="outline" className="mb-1 sm:mb-2 font-mono text-[10px] sm:text-xs">
                       {producto.id}
                     </Badge>
+                    {producto.estado === 'eliminado' && (
+                      <Badge variant="destructive" className="ml-2 mb-1 sm:mb-2 text-[10px] sm:text-xs">
+                        ELIMINADO
+                      </Badge>
+                    )}
                     <CardTitle className="text-sm sm:text-base font-bold text-brand-dark leading-tight line-clamp-2">
                       {producto.nombre}
                     </CardTitle>
@@ -341,7 +273,7 @@ export default function PriceConsultationView() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 sm:h-8 sm:w-8 shrink-0"
-                      onClick={() => handleEdit(producto)}
+                      onClick={() => setEditingProduct(producto)}
                     >
                       <Edit2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
@@ -466,187 +398,27 @@ export default function PriceConsultationView() {
         </div>
       )}
 
-      {/* Edit Dialog */}
-      <Dialog open={!!editingProduct} onOpenChange={(open) => !open && setEditingProduct(null)}>
-        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Editar Producto</DialogTitle>
-            <DialogDescription>
-              {editingProduct?.nombre}
-              <br />
-              <span className="font-mono text-xs">{editingProduct?.id}</span>
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            {/* Precios */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="precio-menor" className="text-right">
-                Precio Menor
-              </Label>
-              <div className="col-span-3 relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="precio-menor"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editPrecioMenor}
-                  onChange={(e) => setEditPrecioMenor(e.target.value)}
-                  className="pl-7"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="precio-mayor" className="text-right">
-                Precio Mayor
-              </Label>
-              <div className="col-span-3 relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="precio-mayor"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editPrecioMayor}
-                  onChange={(e) => setEditPrecioMayor(e.target.value)}
-                  className="pl-7"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="costo-compra" className="text-right">
-                Costo
-              </Label>
-              <div className="col-span-3 relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="costo-compra"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editCostoCompra}
-                  onChange={(e) => setEditCostoCompra(e.target.value)}
-                  className="pl-7"
-                />
-              </div>
-            </div>
-
-            {/* Separador */}
-            <div className="border-t my-2" />
-
-            {/* Descripcion */}
-            <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="descripcion" className="text-right pt-2">
-                Descripcion
-              </Label>
-              <div className="col-span-3">
-                <Textarea
-                  id="descripcion"
-                  placeholder="Descripcion detallada, ingredientes, instrucciones de uso..."
-                  rows={3}
-                  maxLength={2000}
-                  value={editDescripcion}
-                  onChange={(e) => setEditDescripcion(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {editDescripcion.length}/2000 caracteres
-                </p>
-              </div>
-            </div>
-
-            {/* Peso Neto (for MASCOTAS) */}
-            {editingProduct && mostrarCampoPesoNeto(editingProduct.categoria) && (
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="peso-neto" className="text-right">
-                  Peso Neto (kg)
-                </Label>
-                <div className="col-span-3">
-                  <Input
-                    id="peso-neto"
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    placeholder="21.000"
-                    value={editPesoNeto}
-                    onChange={(e) => setEditPesoNeto(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Para mostrar precio por kilogramo
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Volumen Neto (for SUELTOS/QUIMICA) */}
-            {editingProduct && mostrarCampoVolumenNeto(editingProduct.categoria) && (
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="volumen-neto" className="text-right">
-                  Volumen (L)
-                </Label>
-                <div className="col-span-3">
-                  <Input
-                    id="volumen-neto"
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    placeholder="5.000"
-                    value={editVolumenNeto}
-                    onChange={(e) => setEditVolumenNeto(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Para mostrar precio por litro
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Venta Fraccionada */}
-            {editingProduct && (mostrarCampoPesoNeto(editingProduct.categoria) || mostrarCampoVolumenNeto(editingProduct.categoria)) && (
-              <div className="grid grid-cols-4 items-center gap-4">
-                <div className="col-start-2 col-span-3 flex items-center space-x-2">
-                  <Checkbox
-                    id="permite-venta-fraccionada"
-                    checked={editPermiteVentaFraccionada}
-                    onCheckedChange={(checked) => setEditPermiteVentaFraccionada(checked === true)}
-                  />
-                  <Label htmlFor="permite-venta-fraccionada" className="font-normal cursor-pointer">
-                    Permitir venta fraccionada (por kg/litro)
-                  </Label>
-                </div>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingProduct(null)} disabled={updating}>
-              <X className="h-4 w-4 mr-2" />
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={updating}
-              className="bg-[#006AC0] hover:bg-[#005a9e]"
-            >
-              {updating ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Guardar
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Edit/Create Dialog */}
+      <ProductFormDialog
+        open={!!editingProduct || creatingProduct}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingProduct(null)
+            setCreatingProduct(false)
+          }
+        }}
+        productoEditar={editingProduct}
+        onSuccess={(producto) => {
+          // If edited, update in place
+          if (editingProduct) {
+            setProductos((prev) => prev.map((p) => (p.id === producto.id ? producto : p)))
+          } else {
+            // If created, add to top and update total
+            setProductos((prev) => [producto, ...prev])
+            setTotal((prev) => prev + 1)
+          }
+        }}
+      />
 
       {/* Delete Dialog */}
       <DeleteProductDialog

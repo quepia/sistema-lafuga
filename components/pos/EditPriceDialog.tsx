@@ -35,7 +35,7 @@ interface Props {
   tipoPrecioActual: "menor" | "mayor"
   precioActual: number
   onSave: (newPrice: number, tipoPrecio: "menor" | "mayor" | "custom", motivo: string) => void
-  userRole?: UserRole
+  userRole?: string
 }
 
 type TipoAjuste = "porcentaje" | "monto" | "fijo"
