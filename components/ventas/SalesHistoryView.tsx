@@ -1,6 +1,8 @@
 "use client"
 
 import TicketPrint from "@/components/ticket-print"
+import ThermalTicket from "@/components/ThermalTicket"
+import { PrintOptionsDialog, PrintFormat } from "@/components/PrintOptionsDialog"
 import { useState, useEffect, useCallback } from "react"
 import { Eye, Search, AlertCircle, FileText, Calendar, Printer } from "lucide-react"
 import { format } from "date-fns"
@@ -38,6 +40,8 @@ export default function SalesHistoryView() {
     const [page, setPage] = useState(1)
     const [selectedSale, setSelectedSale] = useState<Venta | null>(null)
     const [showTicket, setShowTicket] = useState(false)
+    const [showPrintOptions, setShowPrintOptions] = useState(false)
+    const [printFormat, setPrintFormat] = useState<PrintFormat>(null)
     const [filterDate, setFilterDate] = useState("")
 
     const fetchVentas = useCallback(async () => {
@@ -199,9 +203,9 @@ export default function SalesHistoryView() {
                         <DialogTitle className="flex items-center justify-between">
                             <span>Detalle de Venta</span>
                             <div className="flex items-center gap-2">
-                                <Button size="sm" variant="outline" onClick={() => setShowTicket(true)}>
+                                <Button size="sm" variant="outline" onClick={() => setShowPrintOptions(true)}>
                                     <Printer className="h-4 w-4 mr-2" />
-                                    Imprimir Ticket
+                                    Imprimir
                                 </Button>
                                 <span className="text-sm font-normal text-muted-foreground font-mono">
                                     #{selectedSale?.id.slice(0, 8)}
@@ -292,11 +296,42 @@ export default function SalesHistoryView() {
                 </DialogContent>
             </Dialog>
 
-            {/* Ticket Print Overlay */}
-            {showTicket && selectedSale && (
+            {/* Print Options Dialog */}
+            {selectedSale && (
+                <PrintOptionsDialog
+                    open={showPrintOptions}
+                    onOpenChange={setShowPrintOptions}
+                    onSelect={(format) => {
+                        setPrintFormat(format)
+                        if (format) {
+                            setShowTicket(true)
+                        }
+                    }}
+                    total={selectedSale.total}
+                    ticketId={selectedSale.id}
+                    clienteNombre={selectedSale.cliente_nombre || undefined}
+                />
+            )}
+
+            {/* A4 Print Overlay */}
+            {showTicket && selectedSale && printFormat === "a4" && (
                 <TicketPrint
                     venta={selectedSale}
-                    onClose={() => setShowTicket(false)}
+                    onClose={() => {
+                        setShowTicket(false)
+                        setPrintFormat(null)
+                    }}
+                />
+            )}
+
+            {/* Thermal Ticket Print Overlay */}
+            {showTicket && selectedSale && printFormat === "thermal" && (
+                <ThermalTicket
+                    venta={selectedSale}
+                    onClose={() => {
+                        setShowTicket(false)
+                        setPrintFormat(null)
+                    }}
                 />
             )}
         </div>

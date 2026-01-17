@@ -24,6 +24,8 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/auth-context"
 import TicketPrint from "@/components/ticket-print"
+import ThermalTicket from "@/components/ThermalTicket"
+import { PrintOptionsDialog, PrintFormat } from "@/components/PrintOptionsDialog"
 import { api, Producto, VentaProductoExtendido } from "@/lib/api"
 import { EditPriceDialog } from "@/components/pos/EditPriceDialog"
 import { GlobalDiscountDialog } from "@/components/pos/GlobalDiscountDialog"
@@ -47,11 +49,13 @@ interface CarritoItem {
 interface VentaCreada {
   id: string
   fecha: string
+  created_at: string
   cliente_nombre: string
   total: number
-  tipo_venta: string
+  tipo_venta: 'MAYOR' | 'MENOR'
   metodo_pago: string
-  detalles: Array<{
+  productos: Array<{
+    producto_id: string
     nombre_producto: string
     cantidad: number
     precio_unitario: number
@@ -70,6 +74,8 @@ export default function NuevaVentaPage() {
   const [searching, setSearching] = useState(false)
   const [ventaCreada, setVentaCreada] = useState<VentaCreada | null>(null)
   const [showPrint, setShowPrint] = useState(false)
+  const [showPrintOptions, setShowPrintOptions] = useState(false)
+  const [printFormat, setPrintFormat] = useState<PrintFormat>(null)
 
   // Global discount state
   const [descuentoGlobal, setDescuentoGlobal] = useState(0)
@@ -293,11 +299,13 @@ export default function NuevaVentaPage() {
       const venta: VentaCreada = {
         id: ventaGuardada.id,
         fecha: ventaGuardada.created_at,
+        created_at: ventaGuardada.created_at,
         cliente_nombre: clienteNombre || "Cliente General",
         total: total,
-        tipo_venta: tipoVenta === "MAYOR" ? "Mayorista" : "Minorista",
+        tipo_venta: tipoVenta,
         metodo_pago: metodoPago,
-        detalles: detallesVenta.map(d => ({
+        productos: detallesVenta.map(d => ({
+          producto_id: d.producto_id,
           nombre_producto: d.nombre_producto,
           cantidad: d.cantidad,
           precio_unitario: d.precio_unitario,
@@ -306,7 +314,7 @@ export default function NuevaVentaPage() {
       }
 
       setVentaCreada(venta)
-      setShowPrint(true)
+      setShowPrintOptions(true)
 
       // Limpiar carrito y descuentos
       setCarrito([])
@@ -554,11 +562,42 @@ export default function NuevaVentaPage() {
         </div>
       </div>
 
-      {/* Modal de impresion */}
-      {showPrint && ventaCreada && (
+      {/* Print options dialog */}
+      {ventaCreada && (
+        <PrintOptionsDialog
+          open={showPrintOptions}
+          onOpenChange={setShowPrintOptions}
+          onSelect={(format) => {
+            setPrintFormat(format)
+            if (format) {
+              setShowPrint(true)
+            }
+          }}
+          total={ventaCreada.total}
+          ticketId={ventaCreada.id}
+          clienteNombre={ventaCreada.cliente_nombre}
+        />
+      )}
+
+      {/* A4 print modal */}
+      {showPrint && ventaCreada && printFormat === "a4" && (
         <TicketPrint
           venta={ventaCreada}
-          onClose={() => setShowPrint(false)}
+          onClose={() => {
+            setShowPrint(false)
+            setPrintFormat(null)
+          }}
+        />
+      )}
+
+      {/* Thermal ticket print modal */}
+      {showPrint && ventaCreada && printFormat === "thermal" && (
+        <ThermalTicket
+          venta={ventaCreada}
+          onClose={() => {
+            setShowPrint(false)
+            setPrintFormat(null)
+          }}
         />
       )}
 
