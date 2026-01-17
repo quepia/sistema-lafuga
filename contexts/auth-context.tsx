@@ -12,7 +12,11 @@ import { useRouter } from "next/navigation"
 import { createBrowserClient } from "@supabase/ssr"
 import { User as SupabaseUser } from "@supabase/supabase-js"
 
-interface AppUser extends SupabaseUser {
+interface AppUser {
+  id: string
+  email: string
+  name: string
+  picture: string | null
   role: string
 }
 
@@ -35,12 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const fetchUserRole = useCallback(async (authUser: SupabaseUser) => {
+  const fetchUserRole = useCallback(async (email: string) => {
     try {
       const { data, error } = await supabase
         .from("authorized_users")
         .select("role")
-        .eq("email", authUser.email!)
+        .eq("email", email)
         .single()
 
       if (data) {
@@ -53,24 +57,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase])
 
+  const mapUser = useCallback(async (authUser: SupabaseUser) => {
+    const role = await fetchUserRole(authUser.email!)
+    if (role) {
+      return {
+        id: authUser.id,
+        email: authUser.email!,
+        name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.email!.split("@")[0],
+        picture: authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || null,
+        role: role
+      }
+    }
+    return null
+  }, [fetchUserRole])
+
   useEffect(() => {
     const initializeAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession()
 
       if (session?.user) {
-        const role = await fetchUserRole(session.user)
-        if (role) {
-          // Merge Supabase user with our role
-          setUser({ ...session.user, role })
-        } else {
-          // User authenticated but not in whitelist
-          // We let middleware handle the redirect, but we can also set user to null or special state
-          // Setting user to null might cause "loading" loops if not careful.
-          // We'll set user but with no role? Or null?
-          // If we set User, app thinks logged in.
-          // But middleware redirects to /unauthorized.
-          setUser(null)
-        }
+        const appUser = await mapUser(session.user)
+        setUser(appUser)
       } else {
         setUser(null)
       }
@@ -81,12 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        const role = await fetchUserRole(session.user)
-        if (role) {
-          setUser({ ...session.user, role })
-        } else {
-          setUser(null)
-        }
+        // Optimization: if user is already set and same ID, maybe skip? 
+        // But need to ensure role is fresh? We'll remap.
+        const appUser = await mapUser(session.user)
+        setUser(appUser)
       } else {
         setUser(null)
       }
@@ -96,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe()
     }
-  }, [supabase, fetchUserRole])
+  }, [supabase, mapUser])
 
   const login = useCallback(async () => {
     await supabase.auth.signInWithOAuth({

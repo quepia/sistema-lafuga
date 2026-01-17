@@ -3,7 +3,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode } from "lucide-react"
+import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -88,6 +88,26 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                 </Link>
               )
             })}
+
+            {/* Admin Section */}
+            {user?.role === 'admin' && (
+              <>
+                <div className="my-2 border-t border-white/10" />
+                <Link
+                  href="/dashboard/settings/users"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                    pathname === "/dashboard/settings/users"
+                      ? "bg-white/20 text-white"
+                      : "hover:bg-white/10 text-white/90"
+                  )}
+                >
+                  <Shield className="h-5 w-5" />
+                  Gestión Usuarios
+                </Link>
+              </>
+            )}
           </nav>
 
           {/* User Profile */}
