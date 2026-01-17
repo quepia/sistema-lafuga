@@ -55,6 +55,65 @@ export interface Producto {
   ultima_actualizacion: string | null; // from CSV 'ULTIMA_ACTUALIZACION'
   created_at?: string;              // System timestamp
   updated_at?: string;              // System timestamp
+
+  // NEW FIELDS (Migration 003)
+  descripcion?: string | null;      // Detailed description
+  peso_neto?: number | null;        // Net weight in kg (for MASCOTAS)
+  volumen_neto?: number | null;     // Net volume in liters (for SUELTOS/QUIMICA)
+  permite_venta_fraccionada?: boolean; // Allow fractional sales
+  estado?: 'activo' | 'inactivo' | 'eliminado'; // Product state
+  motivo_eliminacion?: string | null; // Reason for deletion/inactivation
+}
+
+/**
+ * Extended product type with computed unit prices
+ */
+export interface ProductoConPreciosUnitarios extends Producto {
+  precio_menor_por_kg?: number | null;
+  precio_mayor_por_kg?: number | null;
+  precio_menor_por_litro?: number | null;
+  precio_mayor_por_litro?: number | null;
+}
+
+/**
+ * Product history entry for audit trail
+ */
+export interface HistorialProducto {
+  id: string;
+  id_producto: string;
+  codigo_sku: string;
+  campo_modificado: string;
+  valor_anterior: string | null;
+  valor_nuevo: string | null;
+  motivo: string | null;
+  id_usuario: string | null;
+  created_at: string;
+}
+
+/**
+ * Type for product in a sale (with custom pricing support)
+ */
+export interface ProductoEnVenta {
+  producto_id: string;
+  nombre_producto: string;
+  cantidad: number;
+
+  // MASTER PRICES (from productos table)
+  precio_lista_menor: number;
+  precio_lista_mayor: number;
+  costo_unitario: number;
+
+  // ACTUAL SALE PRICE (can be different from list prices)
+  tipo_precio: 'menor' | 'mayor' | 'custom';
+  precio_unitario: number;
+
+  // LINE DISCOUNTS (optional)
+  descuento_linea?: number;
+  descuento_linea_porcentaje?: number;
+  motivo_descuento?: string;
+
+  // TOTAL
+  subtotal: number;
 }
 
 /**
@@ -70,6 +129,13 @@ export interface ProductoInsert {
   unidad?: string | null;
   codigo_barra?: string | null;
   ultima_actualizacion?: string | null;
+  // NEW FIELDS (Migration 003)
+  descripcion?: string | null;
+  peso_neto?: number | null;
+  volumen_neto?: number | null;
+  permite_venta_fraccionada?: boolean;
+  estado?: 'activo' | 'inactivo' | 'eliminado';
+  motivo_eliminacion?: string | null;
 }
 
 /**
@@ -84,6 +150,13 @@ export interface ProductoUpdate {
   unidad?: string | null;
   codigo_barra?: string | null;
   ultima_actualizacion?: string | null;
+  // NEW FIELDS (Migration 003)
+  descripcion?: string | null;
+  peso_neto?: number | null;
+  volumen_neto?: number | null;
+  permite_venta_fraccionada?: boolean;
+  estado?: 'activo' | 'inactivo' | 'eliminado';
+  motivo_eliminacion?: string | null;
 }
 
 /**

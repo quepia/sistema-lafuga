@@ -1,22 +1,39 @@
 // API Service para comunicación directa con Supabase
 // Sistema de Gestión de Precios - LA FUGA
 
-import { supabase, Producto, ProductoUpdate, calcularMargen } from './supabase';
+import { supabase, Producto, ProductoUpdate, ProductoEnVenta, HistorialProducto, calcularMargen } from './supabase';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
+const TABLA_HISTORIAL = 'historial_productos';
 
-// Re-export Producto type for convenience
-export type { Producto, ProductoUpdate };
+// Re-export types for convenience
+export type { Producto, ProductoUpdate, ProductoEnVenta, HistorialProducto };
 
 // ==================== TIPOS DE VENTAS ====================
 
+/**
+ * Legacy product format in sales (for backward compatibility)
+ */
 export interface VentaProducto {
   producto_id: string;
   nombre_producto: string;
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+}
+
+/**
+ * Extended product format in sales (with custom pricing support)
+ */
+export interface VentaProductoExtendido extends VentaProducto {
+  precio_lista_menor?: number;
+  precio_lista_mayor?: number;
+  costo_unitario?: number;
+  tipo_precio?: 'menor' | 'mayor' | 'custom';
+  descuento_linea?: number;
+  descuento_linea_porcentaje?: number;
+  motivo_descuento?: string;
 }
 
 export interface Venta {
@@ -26,7 +43,15 @@ export interface Venta {
   total: number;
   metodo_pago: string;
   cliente_nombre: string | null;
-  productos: VentaProducto[];
+  productos: VentaProducto[] | VentaProductoExtendido[];
+
+  // NEW FIELDS (Migration 003)
+  subtotal?: number;
+  descuento_global?: number;
+  descuento_global_porcentaje?: number;
+  descuento_global_motivo?: string | null;
+  requirio_autorizacion?: boolean;
+  autorizado_por?: string | null;
 }
 
 export interface VentaInsert {
@@ -34,7 +59,15 @@ export interface VentaInsert {
   total: number;
   metodo_pago?: string;
   cliente_nombre?: string;
-  productos: VentaProducto[];
+  productos: VentaProducto[] | VentaProductoExtendido[];
+
+  // NEW FIELDS (Migration 003)
+  subtotal?: number;
+  descuento_global?: number;
+  descuento_global_porcentaje?: number;
+  descuento_global_motivo?: string;
+  requirio_autorizacion?: boolean;
+  autorizado_por?: string;
 }
 
 export interface VentasPaginadas {
@@ -678,6 +711,202 @@ export const api = {
       .eq('id', id);
 
     if (error) handleSupabaseError(error);
+  },
+
+  // ==================== SOFT DELETE PRODUCTS ====================
+
+  /**
+   * Soft delete a product (marks as 'eliminado' instead of deleting)
+   * This preserves the product for historical sales data
+   */
+  async softDeleteProducto(id: string, motivo: string): Promise<Producto> {
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .update({
+        estado: 'eliminado',
+        motivo_eliminacion: motivo,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Producto;
+  },
+
+  /**
+   * Restore a soft-deleted product
+   */
+  async restaurarProducto(id: string): Promise<Producto> {
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .update({
+        estado: 'activo',
+        motivo_eliminacion: null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Producto;
+  },
+
+  /**
+   * Check if a product has been used in any sales
+   */
+  async productoTieneVentas(id: string): Promise<boolean> {
+    // Search for the product ID in the productos JSONB column
+    const { data, error } = await supabase
+      .from(TABLA_VENTAS)
+      .select('id')
+      .contains('productos', [{ producto_id: id }])
+      .limit(1);
+
+    if (error) {
+      console.error('Error checking product sales:', error);
+      return false;
+    }
+
+    return data !== null && data.length > 0;
+  },
+
+  /**
+   * List only active products (excludes 'eliminado' and optionally 'inactivo')
+   */
+  async listarProductosActivos(params: {
+    query?: string;
+    categoria?: string;
+    incluirInactivos?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ProductosPaginados> {
+    const { query, categoria, incluirInactivos = false, limit = 50, offset = 0 } = params;
+
+    // Build count query
+    let countQuery = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head: true });
+
+    // Exclude deleted products, optionally include inactive
+    if (incluirInactivos) {
+      countQuery = countQuery.neq('estado', 'eliminado');
+    } else {
+      countQuery = countQuery.or('estado.is.null,estado.eq.activo');
+    }
+
+    if (categoria) {
+      countQuery = countQuery.eq('categoria', categoria);
+    }
+    if (query) {
+      countQuery = countQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
+    }
+
+    const { count, error: countError } = await countQuery;
+    if (countError) handleSupabaseError(countError);
+
+    // Build data query
+    let dataQuery = supabase.from(TABLA_PRODUCTOS).select('*');
+
+    if (incluirInactivos) {
+      dataQuery = dataQuery.neq('estado', 'eliminado');
+    } else {
+      dataQuery = dataQuery.or('estado.is.null,estado.eq.activo');
+    }
+
+    if (categoria) {
+      dataQuery = dataQuery.eq('categoria', categoria);
+    }
+    if (query) {
+      dataQuery = dataQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
+    }
+
+    dataQuery = dataQuery.range(offset, offset + limit - 1);
+
+    const { data, error } = await dataQuery;
+    if (error) handleSupabaseError(error);
+
+    const productos = (data as Producto[]) || [];
+
+    return {
+      total: count || 0,
+      limit,
+      offset,
+      count: productos.length,
+      productos,
+    };
+  },
+
+  // ==================== PRODUCT HISTORY ====================
+
+  /**
+   * Get product change history
+   */
+  async obtenerHistorialProducto(id_producto: string, limite: number = 50): Promise<HistorialProducto[]> {
+    const { data, error } = await supabase
+      .from(TABLA_HISTORIAL)
+      .select('*')
+      .eq('id_producto', id_producto)
+      .order('created_at', { ascending: false })
+      .limit(limite);
+
+    if (error) handleSupabaseError(error);
+    return (data as HistorialProducto[]) || [];
+  },
+
+  /**
+   * Log a product change to history
+   */
+  async registrarCambioProducto(
+    id_producto: string,
+    codigo_sku: string,
+    campo: string,
+    valorAnterior: unknown,
+    valorNuevo: unknown,
+    motivo?: string
+  ): Promise<HistorialProducto> {
+    const { data, error } = await supabase
+      .from(TABLA_HISTORIAL)
+      .insert({
+        id_producto,
+        codigo_sku,
+        campo_modificado: campo,
+        valor_anterior: valorAnterior != null ? String(valorAnterior) : null,
+        valor_nuevo: valorNuevo != null ? String(valorNuevo) : null,
+        motivo: motivo || null,
+        id_usuario: null,
+      })
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as HistorialProducto;
+  },
+
+  // ==================== EXTENDED SALE CREATION ====================
+
+  /**
+   * Creates a new sale with extended pricing and discount support
+   */
+  async crearVentaExtendida(datos: VentaInsert): Promise<Venta> {
+    const { data, error } = await supabase
+      .from(TABLA_VENTAS)
+      .insert({
+        tipo_venta: datos.tipo_venta,
+        total: datos.total,
+        subtotal: datos.subtotal || datos.total,
+        metodo_pago: datos.metodo_pago || 'Efectivo',
+        cliente_nombre: datos.cliente_nombre || 'Cliente General',
+        productos: datos.productos,
+        descuento_global: datos.descuento_global || 0,
+        descuento_global_porcentaje: datos.descuento_global_porcentaje || 0,
+        descuento_global_motivo: datos.descuento_global_motivo || null,
+        requirio_autorizacion: datos.requirio_autorizacion || false,
+        autorizado_por: datos.autorizado_por || null,
+      })
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Venta;
   },
 };
 

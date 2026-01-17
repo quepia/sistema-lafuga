@@ -1,14 +1,16 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -17,10 +19,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import { api, Producto, ApiError } from "@/lib/api"
 import { useCategorias } from "@/hooks/use-categorias"
 import { toast } from "sonner"
+import { PrecioUnitario } from "@/components/productos/PrecioUnitario"
+import { DeleteProductDialog } from "@/components/productos/DeleteProductDialog"
 
 const ITEMS_PER_PAGE = 20
 
@@ -38,7 +48,14 @@ export default function PriceConsultationView() {
   const [editPrecioMenor, setEditPrecioMenor] = useState("")
   const [editPrecioMayor, setEditPrecioMayor] = useState("")
   const [editCostoCompra, setEditCostoCompra] = useState("")
+  const [editDescripcion, setEditDescripcion] = useState("")
+  const [editPesoNeto, setEditPesoNeto] = useState("")
+  const [editVolumenNeto, setEditVolumenNeto] = useState("")
+  const [editPermiteVentaFraccionada, setEditPermiteVentaFraccionada] = useState(false)
   const [updating, setUpdating] = useState(false)
+
+  // Estado para el modal de eliminación
+  const [deletingProduct, setDeletingProduct] = useState<Producto | null>(null)
 
   const { categorias, loading: loadingCategorias } = useCategorias()
   const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
@@ -97,6 +114,21 @@ export default function PriceConsultationView() {
     setEditPrecioMenor(producto.precio_menor.toString())
     setEditPrecioMayor(producto.precio_mayor.toString())
     setEditCostoCompra(producto.costo.toString())
+    setEditDescripcion(producto.descripcion || "")
+    setEditPesoNeto(producto.peso_neto?.toString() || "")
+    setEditVolumenNeto(producto.volumen_neto?.toString() || "")
+    setEditPermiteVentaFraccionada(producto.permite_venta_fraccionada || false)
+  }
+
+  // Check if product category should show peso_neto field
+  const mostrarCampoPesoNeto = (categoria: string | null) => {
+    return categoria === "MASCOTAS"
+  }
+
+  // Check if product category should show volumen_neto field
+  const mostrarCampoVolumenNeto = (categoria: string | null) => {
+    const categoriasSueltos = ["SUELTOS", "QUIMICA", "SUELTOS - QUIMICA", "SUELTOS/QUIMICA"]
+    return categoriasSueltos.includes(categoria || "")
   }
 
   // Función para guardar cambios
@@ -106,9 +138,21 @@ export default function PriceConsultationView() {
     const precioMenor = parseFloat(editPrecioMenor)
     const precioMayor = parseFloat(editPrecioMayor)
     const costoCompra = parseFloat(editCostoCompra)
+    const pesoNeto = editPesoNeto ? parseFloat(editPesoNeto) : null
+    const volumenNeto = editVolumenNeto ? parseFloat(editVolumenNeto) : null
 
     if (isNaN(precioMenor) || isNaN(precioMayor) || isNaN(costoCompra) || precioMenor < 0 || precioMayor < 0 || costoCompra < 0) {
-      toast.error("Los precios y el costo deben ser números válidos mayores o iguales a 0")
+      toast.error("Los precios y el costo deben ser numeros validos mayores o iguales a 0")
+      return
+    }
+
+    if (pesoNeto !== null && (isNaN(pesoNeto) || pesoNeto < 0)) {
+      toast.error("El peso neto debe ser un numero valido mayor o igual a 0")
+      return
+    }
+
+    if (volumenNeto !== null && (isNaN(volumenNeto) || volumenNeto < 0)) {
+      toast.error("El volumen neto debe ser un numero valido mayor o igual a 0")
       return
     }
 
@@ -119,6 +163,10 @@ export default function PriceConsultationView() {
         precio_menor: precioMenor,
         precio_mayor: precioMayor,
         costo: costoCompra,
+        descripcion: editDescripcion || null,
+        peso_neto: pesoNeto,
+        volumen_neto: volumenNeto,
+        permite_venta_fraccionada: editPermiteVentaFraccionada,
       })
 
       // Actualizar el producto en la lista
@@ -136,6 +184,28 @@ export default function PriceConsultationView() {
       }
     } finally {
       setUpdating(false)
+    }
+  }
+
+  // Función para eliminar producto (soft delete)
+  const handleDelete = async (motivo: string) => {
+    if (!deletingProduct) return
+
+    try {
+      await api.softDeleteProducto(deletingProduct.id, motivo)
+
+      // Remover el producto de la lista
+      setProductos((prev) => prev.filter((p) => p.id !== deletingProduct.id))
+      setTotal((prev) => prev - 1)
+
+      toast.success(`Producto "${deletingProduct.nombre}" eliminado correctamente`)
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error(err.message)
+      } else {
+        toast.error("Error al eliminar el producto")
+      }
+      throw err
     }
   }
 
@@ -250,15 +320,40 @@ export default function PriceConsultationView() {
                     <CardTitle className="text-sm sm:text-base font-bold text-brand-dark leading-tight line-clamp-2">
                       {producto.nombre}
                     </CardTitle>
+                    {producto.descripcion && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1 cursor-help">
+                              <Info className="h-3 w-3 inline mr-1" />
+                              {producto.descripcion}
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p>{producto.descripcion}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 sm:h-8 sm:w-8 shrink-0"
-                    onClick={() => handleEdit(producto)}
-                  >
-                    <Edit2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 sm:h-8 sm:w-8 shrink-0"
+                      onClick={() => handleEdit(producto)}
+                    >
+                      <Edit2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 sm:h-8 sm:w-8 shrink-0 text-destructive hover:text-destructive"
+                      onClick={() => setDeletingProduct(producto)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="pt-3 sm:pt-4 p-3 sm:p-6">
@@ -287,6 +382,9 @@ export default function PriceConsultationView() {
                   </div>
                 </div>
 
+                {/* Unit Prices (per kg or per liter) */}
+                <PrecioUnitario producto={producto} className="mb-3" />
+
                 {/* Info Badges */}
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <Badge className="bg-[#6CBEFA] hover:bg-[#6CBEFA]/90 text-white">
@@ -295,6 +393,11 @@ export default function PriceConsultationView() {
                   {producto.unidad && (
                     <Badge variant="outline" className="text-xs">
                       {producto.unidad}
+                    </Badge>
+                  )}
+                  {producto.permite_venta_fraccionada && (
+                    <Badge variant="secondary" className="text-xs">
+                      Venta fraccionada
                     </Badge>
                   )}
                   {producto.precio_menor === 0 && (
@@ -309,10 +412,10 @@ export default function PriceConsultationView() {
                   )}
                 </div>
 
-                {/* Código de barras si existe */}
+                {/* Codigo de barras si existe */}
                 {producto.codigo_barra && (
                   <div className="mt-3 text-xs text-muted-foreground font-mono">
-                    Cód. Barras: {producto.codigo_barra}
+                    Cod. Barras: {producto.codigo_barra}
                   </div>
                 )}
               </CardContent>
@@ -365,9 +468,9 @@ export default function PriceConsultationView() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingProduct} onOpenChange={(open) => !open && setEditingProduct(null)}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Editar Precios</DialogTitle>
+            <DialogTitle>Editar Producto</DialogTitle>
             <DialogDescription>
               {editingProduct?.nombre}
               <br />
@@ -375,6 +478,7 @@ export default function PriceConsultationView() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Precios */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="precio-menor" className="text-right">
                 Precio Menor
@@ -432,6 +536,91 @@ export default function PriceConsultationView() {
                 />
               </div>
             </div>
+
+            {/* Separador */}
+            <div className="border-t my-2" />
+
+            {/* Descripcion */}
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label htmlFor="descripcion" className="text-right pt-2">
+                Descripcion
+              </Label>
+              <div className="col-span-3">
+                <Textarea
+                  id="descripcion"
+                  placeholder="Descripcion detallada, ingredientes, instrucciones de uso..."
+                  rows={3}
+                  maxLength={2000}
+                  value={editDescripcion}
+                  onChange={(e) => setEditDescripcion(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editDescripcion.length}/2000 caracteres
+                </p>
+              </div>
+            </div>
+
+            {/* Peso Neto (for MASCOTAS) */}
+            {editingProduct && mostrarCampoPesoNeto(editingProduct.categoria) && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="peso-neto" className="text-right">
+                  Peso Neto (kg)
+                </Label>
+                <div className="col-span-3">
+                  <Input
+                    id="peso-neto"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    placeholder="21.000"
+                    value={editPesoNeto}
+                    onChange={(e) => setEditPesoNeto(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Para mostrar precio por kilogramo
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Volumen Neto (for SUELTOS/QUIMICA) */}
+            {editingProduct && mostrarCampoVolumenNeto(editingProduct.categoria) && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="volumen-neto" className="text-right">
+                  Volumen (L)
+                </Label>
+                <div className="col-span-3">
+                  <Input
+                    id="volumen-neto"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    placeholder="5.000"
+                    value={editVolumenNeto}
+                    onChange={(e) => setEditVolumenNeto(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Para mostrar precio por litro
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Venta Fraccionada */}
+            {editingProduct && (mostrarCampoPesoNeto(editingProduct.categoria) || mostrarCampoVolumenNeto(editingProduct.categoria)) && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <div className="col-start-2 col-span-3 flex items-center space-x-2">
+                  <Checkbox
+                    id="permite-venta-fraccionada"
+                    checked={editPermiteVentaFraccionada}
+                    onCheckedChange={(checked) => setEditPermiteVentaFraccionada(checked === true)}
+                  />
+                  <Label htmlFor="permite-venta-fraccionada" className="font-normal cursor-pointer">
+                    Permitir venta fraccionada (por kg/litro)
+                  </Label>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingProduct(null)} disabled={updating}>
@@ -458,6 +647,14 @@ export default function PriceConsultationView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Dialog */}
+      <DeleteProductDialog
+        open={!!deletingProduct}
+        onOpenChange={(open) => !open && setDeletingProduct(null)}
+        producto={deletingProduct}
+        onConfirm={handleDelete}
+      />
     </div>
   )
 }

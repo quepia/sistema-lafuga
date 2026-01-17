@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Search, Plus, Minus, Trash2, Printer, ShoppingCart, CreditCard, Banknote } from "lucide-react"
+import { Search, Plus, Minus, Trash2, Printer, ShoppingCart, CreditCard, Banknote, Edit2, Percent } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,13 +23,23 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import TicketPrint from "@/components/ticket-print"
-import { api, Producto } from "@/lib/api"
+import { api, Producto, VentaProductoExtendido } from "@/lib/api"
+import { EditPriceDialog } from "@/components/pos/EditPriceDialog"
+import { GlobalDiscountDialog } from "@/components/pos/GlobalDiscountDialog"
+import { SaleLineItem } from "@/components/pos/SaleLineItem"
+import { formatearPrecio } from "@/lib/supabase-utils"
 
 interface CarritoItem {
   producto: Producto
   cantidad: number
   precioUnitario: number
   subtotal: number
+  // Custom pricing support
+  tipoPrecio: 'menor' | 'mayor' | 'custom'
+  precioOriginal: number  // Original list price
+  descuentoLinea?: number
+  descuentoLineaPorcentaje?: number
+  motivoDescuento?: string
 }
 
 interface VentaCreada {
@@ -58,6 +68,15 @@ export default function NuevaVentaPage() {
   const [searching, setSearching] = useState(false)
   const [ventaCreada, setVentaCreada] = useState<VentaCreada | null>(null)
   const [showPrint, setShowPrint] = useState(false)
+
+  // Global discount state
+  const [descuentoGlobal, setDescuentoGlobal] = useState(0)
+  const [descuentoGlobalPorcentaje, setDescuentoGlobalPorcentaje] = useState(0)
+  const [descuentoGlobalMotivo, setDescuentoGlobalMotivo] = useState("")
+  const [showGlobalDiscountDialog, setShowGlobalDiscountDialog] = useState(false)
+
+  // Edit price dialog state - controlled by SaleLineItem now
+  // const [editingItem, setEditingItem] = useState<CarritoItem | null>(null)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
@@ -98,15 +117,16 @@ export default function NuevaVentaPage() {
   const agregarAlCarrito = (producto: Producto) => {
     const existente = carrito.find(item => item.producto.id === producto.id)
     const precio = getPrecio(producto)
+    const tipoPrecioActual = tipoVenta === "MAYOR" ? "mayor" : "menor"
 
     if (existente) {
       setCarrito(carrito.map(item =>
         item.producto.id === producto.id
           ? {
-              ...item,
-              cantidad: item.cantidad + 1,
-              subtotal: (item.cantidad + 1) * precio
-            }
+            ...item,
+            cantidad: item.cantidad + 1,
+            subtotal: (item.cantidad + 1) * item.precioUnitario
+          }
           : item
       ))
     } else {
@@ -114,6 +134,8 @@ export default function NuevaVentaPage() {
         producto,
         cantidad: 1,
         precioUnitario: precio,
+        precioOriginal: precio,
+        tipoPrecio: tipoPrecioActual,
         subtotal: precio
       }])
     }
@@ -128,6 +150,51 @@ export default function NuevaVentaPage() {
     })
   }
 
+  // Update price for a line item
+  const actualizarPrecioLinea = (
+    productoId: string,
+    nuevoPrecio: number,
+    tipoPrecio: 'menor' | 'mayor' | 'custom',
+    motivo: string
+  ) => {
+    setCarrito(carrito.map(item => {
+      if (item.producto.id !== productoId) return item
+
+      const precioOriginal = tipoPrecio === 'mayor' ? item.producto.precio_mayor : item.producto.precio_menor
+      const descuento = precioOriginal - nuevoPrecio
+      const descuentoPorcentaje = precioOriginal > 0 ? (descuento / precioOriginal) * 100 : 0
+
+      return {
+        ...item,
+        precioUnitario: nuevoPrecio,
+        precioOriginal: precioOriginal,
+        tipoPrecio: descuento > 0 ? 'custom' : tipoPrecio,
+        descuentoLinea: descuento > 0 ? descuento : undefined,
+        descuentoLineaPorcentaje: descuento > 0 ? descuentoPorcentaje : undefined,
+        motivoDescuento: descuento > 0 ? motivo : undefined,
+        subtotal: item.cantidad * nuevoPrecio
+      }
+    }))
+  }
+
+  // Apply global discount
+  const aplicarDescuentoGlobal = (monto: number, porcentaje: number, motivo: string) => {
+    setDescuentoGlobal(monto)
+    setDescuentoGlobalPorcentaje(porcentaje)
+    setDescuentoGlobalMotivo(motivo)
+    toast({
+      title: "Descuento aplicado",
+      description: `${porcentaje.toFixed(1)}% de descuento global`,
+    })
+  }
+
+  // Remove global discount
+  const quitarDescuentoGlobal = () => {
+    setDescuentoGlobal(0)
+    setDescuentoGlobalPorcentaje(0)
+    setDescuentoGlobalMotivo("")
+  }
+
   // Actualizar cantidad
   const actualizarCantidad = (productoId: string, nuevaCantidad: number) => {
     if (nuevaCantidad <= 0) {
@@ -138,10 +205,10 @@ export default function NuevaVentaPage() {
     setCarrito(carrito.map(item =>
       item.producto.id === productoId
         ? {
-            ...item,
-            cantidad: nuevaCantidad,
-            subtotal: nuevaCantidad * item.precioUnitario
-          }
+          ...item,
+          cantidad: nuevaCantidad,
+          subtotal: nuevaCantidad * item.precioUnitario
+        }
         : item
     ))
   }
@@ -151,19 +218,29 @@ export default function NuevaVentaPage() {
     setCarrito(carrito.filter(item => item.producto.id !== productoId))
   }
 
-  // Calcular total
-  const total = carrito.reduce((sum, item) => sum + item.subtotal, 0)
+  // Calcular subtotal y total
+  const subtotal = carrito.reduce((sum, item) => sum + item.subtotal, 0)
+  const total = subtotal - descuentoGlobal
 
-  // Actualizar precios cuando cambia el tipo de venta
+  // Actualizar precios cuando cambia el tipo de venta (only for items without custom price)
   useEffect(() => {
     setCarrito(carrito.map(item => {
+      // If item has a custom price, keep it
+      if (item.tipoPrecio === 'custom') return item
+
       const nuevoPrecio = getPrecio(item.producto)
+      const tipoPrecioActual = tipoVenta === "MAYOR" ? "mayor" : "menor"
       return {
         ...item,
         precioUnitario: nuevoPrecio,
+        precioOriginal: nuevoPrecio,
+        tipoPrecio: tipoPrecioActual,
         subtotal: item.cantidad * nuevoPrecio
       }
     }))
+
+    // Reset global discount when sale type changes
+    quitarDescuentoGlobal()
   }, [tipoVenta])
 
   // Generar ticket y guardar venta
@@ -179,22 +256,34 @@ export default function NuevaVentaPage() {
 
     setLoading(true)
     try {
-      // Preparar datos de la venta
-      const detallesVenta = carrito.map(item => ({
+      // Preparar datos de la venta con precios extendidos
+      const detallesVenta: VentaProductoExtendido[] = carrito.map(item => ({
         producto_id: item.producto.id,
         nombre_producto: item.producto.nombre,
         cantidad: item.cantidad,
         precio_unitario: item.precioUnitario,
-        subtotal: item.subtotal
+        subtotal: item.subtotal,
+        // Extended pricing data
+        precio_lista_menor: item.producto.precio_menor,
+        precio_lista_mayor: item.producto.precio_mayor,
+        costo_unitario: item.producto.costo,
+        tipo_precio: item.tipoPrecio,
+        descuento_linea: item.descuentoLinea,
+        descuento_linea_porcentaje: item.descuentoLineaPorcentaje,
+        motivo_descuento: item.motivoDescuento,
       }))
 
-      // Guardar venta en Supabase
-      const ventaGuardada = await api.crearVenta({
+      // Guardar venta en Supabase con datos extendidos
+      const ventaGuardada = await api.crearVentaExtendida({
         tipo_venta: tipoVenta,
-        total,
+        subtotal: subtotal,
+        total: total,
         metodo_pago: metodoPago,
         cliente_nombre: clienteNombre || "Cliente General",
-        productos: detallesVenta
+        productos: detallesVenta,
+        descuento_global: descuentoGlobal,
+        descuento_global_porcentaje: descuentoGlobalPorcentaje,
+        descuento_global_motivo: descuentoGlobalMotivo || undefined,
       })
 
       // Crear objeto de venta para el ticket
@@ -202,7 +291,7 @@ export default function NuevaVentaPage() {
         id: ventaGuardada.id,
         fecha: ventaGuardada.created_at,
         cliente_nombre: clienteNombre || "Cliente General",
-        total,
+        total: total,
         tipo_venta: tipoVenta === "MAYOR" ? "Mayorista" : "Minorista",
         metodo_pago: metodoPago,
         detalles: detallesVenta.map(d => ({
@@ -216,9 +305,10 @@ export default function NuevaVentaPage() {
       setVentaCreada(venta)
       setShowPrint(true)
 
-      // Limpiar carrito
+      // Limpiar carrito y descuentos
       setCarrito([])
       setClienteNombre("")
+      quitarDescuentoGlobal()
 
       toast({
         title: "Venta registrada",
@@ -329,73 +419,22 @@ export default function NuevaVentaPage() {
                   <p className="text-sm">Busca productos para agregarlos</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Producto</TableHead>
-                        <TableHead className="text-center">Cantidad</TableHead>
-                        <TableHead className="text-right">Precio</TableHead>
-                        <TableHead className="text-right">Subtotal</TableHead>
-                        <TableHead></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {carrito.map((item) => (
-                        <TableRow key={item.producto.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{item.producto.nombre}</p>
-                              <p className="text-xs text-muted-foreground">{item.producto.id}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-8 w-8"
-                                onClick={() => actualizarCantidad(item.producto.id, item.cantidad - 1)}
-                              >
-                                <Minus className="h-4 w-4" />
-                              </Button>
-                              <Input
-                                type="number"
-                                value={item.cantidad}
-                                onChange={(e) => actualizarCantidad(item.producto.id, Number(e.target.value))}
-                                className="w-16 text-center h-8"
-                                min="1"
-                              />
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-8 w-8"
-                                onClick={() => actualizarCantidad(item.producto.id, item.cantidad + 1)}
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            ${item.precioUnitario.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            ${item.subtotal.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="space-y-2">
+                  {carrito.map((item) => (
+                    <SaleLineItem
+                      key={item.producto.id}
+                      item={item}
+                      onUpdatePrice={(newPrice, motivo) =>
+                        actualizarPrecioLinea(item.producto.id, newPrice, item.tipoPrecio, motivo)
+                      }
+                      onUpdateQuantity={(newQty) =>
+                        actualizarCantidad(item.producto.id, newQty)
+                      }
+                      onRemove={() => eliminarDelCarrito(item.producto.id)}
+                    // You can pass user role here if available in context
+                    // userRole={user?.role} 
+                    />
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -407,12 +446,46 @@ export default function NuevaVentaPage() {
           <Card className="bg-brand-blue text-white">
             <CardContent className="p-6">
               <p className="text-sm opacity-80">Total a pagar</p>
-              <p className="text-4xl font-bold mt-1">
-                ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-              </p>
+              <div className="flex justify-between items-end">
+                <p className="text-4xl font-bold mt-1">
+                  ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                </p>
+                {descuentoGlobal > 0 && (
+                  <div className="text-right text-sm">
+                    <div className="opacity-80 line-through">${subtotal.toLocaleString("es-AR")}</div>
+                    <div className="bg-white/20 px-2 py-0.5 rounded text-white font-bold">
+                      -{descuentoGlobalPorcentaje.toFixed(1)}% OFF
+                    </div>
+                  </div>
+                )}
+              </div>
               <p className="text-sm opacity-80 mt-2">
                 {carrito.length} productos - Venta {tipoVenta === "MAYOR" ? "Mayorista" : "Minorista"}
               </p>
+
+              <div className="mt-4 pt-4 border-t border-white/20">
+                {descuentoGlobal > 0 ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full bg-white/20 hover:bg-white/30 text-white border-0"
+                    onClick={() => quitarDescuentoGlobal()}
+                  >
+                    <Percent className="h-4 w-4 mr-2" />
+                    Quitar Descuento ({descuentoGlobalPorcentaje}%)
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full bg-white text-brand-blue hover:bg-white/90"
+                    onClick={() => setShowGlobalDiscountDialog(true)}
+                  >
+                    <Percent className="h-4 w-4 mr-2" />
+                    Aplicar Descuento Global
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -477,6 +550,14 @@ export default function NuevaVentaPage() {
           onClose={() => setShowPrint(false)}
         />
       )}
+
+      {/* Dialogo de Descuento Global */}
+      <GlobalDiscountDialog
+        open={showGlobalDiscountDialog}
+        onOpenChange={setShowGlobalDiscountDialog}
+        subtotal={subtotal}
+        onApply={aplicarDescuentoGlobal}
+      />
     </div>
   )
 }
