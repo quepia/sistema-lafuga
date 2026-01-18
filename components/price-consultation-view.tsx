@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info, Plus } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info, Plus, RefreshCw } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,24 +18,28 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
-import { api, Producto, ApiError } from "@/lib/api"
+import { Producto } from "@/lib/api"
 import { useCategorias } from "@/hooks/use-categorias"
+import { useProductosSWR } from "@/hooks/use-productos-swr"
 import { toast } from "sonner"
 import { PrecioUnitario } from "@/components/productos/PrecioUnitario"
 import { DeleteProductDialog } from "@/components/productos/DeleteProductDialog"
 import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
+import { api, ApiError } from "@/lib/api"
 
 const ITEMS_PER_PAGE = 20
 
 export default function PriceConsultationView() {
-  const [searchQuery, setSearchQuery] = useState("")
+  // Search state with debounce
+  const [searchInput, setSearchInput] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const [productos, setProductos] = useState<Producto[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
   const [showDeleted, setShowDeleted] = useState(false)
+
+  // Local state for optimistic updates
+  const [localProductos, setLocalProductos] = useState<Producto[] | null>(null)
+  const [localTotal, setLocalTotal] = useState<number | null>(null)
 
   // Estado para el modal de edición/creación
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null)
@@ -45,59 +49,46 @@ export default function PriceConsultationView() {
   const [deletingProduct, setDeletingProduct] = useState<Producto | null>(null)
 
   const { categorias, loading: loadingCategorias } = useCategorias()
-  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
-  // Función para buscar productos
-  const fetchProductos = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const result = await api.listarProductos({
-        query: searchQuery || undefined,
-        categoria: selectedCategory !== "all" ? selectedCategory : undefined,
-        incluirEliminados: showDeleted,
-        limit: ITEMS_PER_PAGE,
-        offset,
-      })
-
-      setProductos(result.productos)
-      setTotal(result.total)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError("Error al cargar productos")
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [searchQuery, selectedCategory, showDeleted, offset])
-
-  // Debounce para búsqueda
+  // Debounce search input
   useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current)
-    }
-
-    debounceRef.current = setTimeout(() => {
-      fetchProductos()
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput)
+      setOffset(0) // Reset to first page on search
     }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
-    }
-  }, [fetchProductos])
-
-  // Reset offset cuando cambia la búsqueda, categoría o filtro de eliminados
+  // Reset offset when filters change
   useEffect(() => {
     setOffset(0)
-  }, [searchQuery, selectedCategory, showDeleted])
+  }, [selectedCategory, showDeleted])
 
-  // Función para abrir modal de edición (ahora solo setea el estado)
-  // handleEdit ya no necesita setear estados individuales
+  // Use SWR hook for products
+  const {
+    productos: swrProductos,
+    total: swrTotal,
+    loading,
+    isValidating,
+    error,
+    refetch
+  } = useProductosSWR({
+    query: debouncedSearch,
+    categoria: selectedCategory !== "all" ? selectedCategory : "",
+    incluirEliminados: showDeleted,
+    limit: ITEMS_PER_PAGE,
+    offset,
+  })
+
+  // Use local state if available (for optimistic updates), otherwise use SWR data
+  const productos = localProductos ?? swrProductos
+  const total = localTotal ?? swrTotal
+
+  // Reset local state when SWR data changes (after revalidation)
+  useEffect(() => {
+    setLocalProductos(null)
+    setLocalTotal(null)
+  }, [swrProductos, swrTotal])
 
   // Función para eliminar producto (soft delete)
   const handleDelete = async (motivo: string) => {
@@ -106,12 +97,19 @@ export default function PriceConsultationView() {
     try {
       await api.softDeleteProducto(deletingProduct.id, motivo)
 
-      // Remover el producto de la lista
-      setProductos((prev) => prev.filter((p) => p.id !== deletingProduct.id))
-      setTotal((prev) => prev - 1)
+      // Optimistic update: remove from local state
+      setLocalProductos(prev => (prev ?? productos).filter(p => p.id !== deletingProduct.id))
+      setLocalTotal(prev => (prev ?? total) - 1)
 
       toast.success(`Producto "${deletingProduct.nombre}" eliminado correctamente`)
+
+      // Revalidate in background
+      refetch()
     } catch (err) {
+      // Reset local state on error
+      setLocalProductos(null)
+      setLocalTotal(null)
+
       if (err instanceof ApiError) {
         toast.error(err.message)
       } else {
@@ -148,9 +146,13 @@ export default function PriceConsultationView() {
               <Input
                 placeholder="Buscar producto..."
                 className="pl-9 sm:pl-10 h-10 sm:h-12 text-sm sm:text-base"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
               />
+              {/* Background revalidation indicator */}
+              {isValidating && !loading && (
+                <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
             </div>
             <div className="flex gap-2 sm:gap-4 items-center">
               <Button
@@ -186,13 +188,13 @@ export default function PriceConsultationView() {
         </CardContent>
       </Card>
 
-      {/* Error State */}
+      {/* Error State - Show as alert, not blocking */}
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {error}
-            <Button variant="link" className="ml-2 p-0 h-auto" onClick={fetchProductos}>
+            <Button variant="link" className="ml-2 p-0 h-auto" onClick={refetch}>
               Reintentar
             </Button>
           </AlertDescription>
@@ -363,7 +365,7 @@ export default function PriceConsultationView() {
             <Search className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium text-brand-dark">No se encontraron productos</p>
             <p className="text-sm text-muted-foreground mt-2">
-              {searchQuery
+              {searchInput
                 ? "Intenta con otros términos de búsqueda"
                 : "No hay productos en esta categoría"}
             </p>
@@ -409,14 +411,15 @@ export default function PriceConsultationView() {
         }}
         productoEditar={editingProduct}
         onSuccess={(producto) => {
-          // If edited, update in place
+          // Optimistic update
           if (editingProduct) {
-            setProductos((prev) => prev.map((p) => (p.id === producto.id ? producto : p)))
+            setLocalProductos(prev => (prev ?? productos).map(p => p.id === producto.id ? producto : p))
           } else {
-            // If created, add to top and update total
-            setProductos((prev) => [producto, ...prev])
-            setTotal((prev) => prev + 1)
+            setLocalProductos(prev => [producto, ...(prev ?? productos)])
+            setLocalTotal(prev => (prev ?? total) + 1)
           }
+          // Revalidate in background
+          refetch()
         }}
       />
 

@@ -31,7 +31,17 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Use createBrowserClient for client-side usage (shares cookies with middleware/auth)
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+// Explicit auth config to ensure proper session handling on tab focus/wake
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+    // Reduce storage events to prevent redundant auth state changes
+    storageKey: 'la-fuga-auth',
+  }
+});
 
 /**
  * Tipo del producto tal como está en la base de datos (snake_case)

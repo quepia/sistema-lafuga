@@ -6,11 +6,12 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from "react"
 import { useRouter } from "next/navigation"
 import { createBrowserClient } from "@supabase/ssr"
-import { User as SupabaseUser } from "@supabase/supabase-js"
+import { User as SupabaseUser, AuthChangeEvent } from "@supabase/supabase-js"
 
 interface AppUser {
   id: string
@@ -34,30 +35,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
+  // Cache the last processed user ID to avoid redundant role fetches
+  const lastProcessedUserIdRef = useRef<string | null>(null)
+  const roleCache = useRef<Map<string, string>>(new Map())
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const fetchUserRole = useCallback(async (email: string) => {
+  const fetchUserRole = useCallback(async (email: string): Promise<string | null> => {
+    // Check cache first
+    if (roleCache.current.has(email)) {
+      return roleCache.current.get(email)!
+    }
+
     try {
+      // Add timeout to prevent hanging
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+
       const { data, error } = await supabase
         .from("authorized_users")
         .select("role")
         .eq("email", email)
         .single()
+        .abortSignal(controller.signal)
 
-      if (data) {
+      clearTimeout(timeoutId)
+
+      if (data?.role) {
+        roleCache.current.set(email, data.role)
         return data.role
       }
       return null
     } catch (e) {
+      // On timeout or error, return cached value if available
+      if (roleCache.current.has(email)) {
+        return roleCache.current.get(email)!
+      }
       console.error("Error fetching user role", e)
       return null
     }
   }, [supabase])
 
-  const mapUser = useCallback(async (authUser: SupabaseUser) => {
+  const mapUser = useCallback(async (authUser: SupabaseUser): Promise<AppUser | null> => {
     const role = await fetchUserRole(authUser.email!)
     if (role) {
       return {
@@ -76,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: { session } } = await supabase.auth.getSession()
 
       if (session?.user) {
+        lastProcessedUserIdRef.current = session.user.id
         const appUser = await mapUser(session.user)
         setUser(appUser)
       } else {
@@ -86,13 +109,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initializeAuth()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session) => {
+      // Skip TOKEN_REFRESHED events if we already have the user data
+      // This prevents blocking the UI on tab focus when token refreshes
+      if (event === 'TOKEN_REFRESHED' && session?.user?.id === lastProcessedUserIdRef.current && user) {
+        return
+      }
+
+      // Skip if this is the same user we already processed
+      if (session?.user?.id === lastProcessedUserIdRef.current && user) {
+        // Only update if user metadata changed (like name or picture)
+        const currentMetadata = JSON.stringify({
+          name: user.name,
+          picture: user.picture
+        })
+        const newMetadata = JSON.stringify({
+          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email!.split("@")[0],
+          picture: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || null
+        })
+        if (currentMetadata === newMetadata) {
+          return
+        }
+      }
+
       if (session?.user) {
-        // Optimization: if user is already set and same ID, maybe skip? 
-        // But need to ensure role is fresh? We'll remap.
+        lastProcessedUserIdRef.current = session.user.id
         const appUser = await mapUser(session.user)
         setUser(appUser)
       } else {
+        lastProcessedUserIdRef.current = null
         setUser(null)
       }
       setLoading(false)
@@ -101,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe()
     }
-  }, [supabase, mapUser])
+  }, [supabase, mapUser, user])
 
   const login = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
@@ -113,6 +158,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [supabase])
 
   const logout = useCallback(async () => {
+    roleCache.current.clear()
+    lastProcessedUserIdRef.current = null
     await supabase.auth.signOut()
     setUser(null)
     router.push("/login")
