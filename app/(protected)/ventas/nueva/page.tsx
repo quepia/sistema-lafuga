@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import dynamic from "next/dynamic"
 import { Search, Plus, Minus, Trash2, Printer, ShoppingCart, CreditCard, Banknote, Edit2, Percent } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,8 +24,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/auth-context"
-import TicketPrint from "@/components/ticket-print"
-import ThermalTicket from "@/components/ThermalTicket"
 import { PrintOptionsDialog, PrintFormat } from "@/components/PrintOptionsDialog"
 import { api, Producto, VentaProductoExtendido } from "@/lib/api"
 import { EditPriceDialog } from "@/components/pos/EditPriceDialog"
@@ -32,6 +31,10 @@ import { GlobalDiscountDialog } from "@/components/pos/GlobalDiscountDialog"
 import { SaleLineItem } from "@/components/pos/SaleLineItem"
 import { formatearPrecio } from "@/lib/supabase-utils"
 import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
+
+// Dynamic imports for heavy print components (reduces initial bundle)
+const TicketPrint = dynamic(() => import("@/components/ticket-print"), { ssr: false })
+const ThermalTicket = dynamic(() => import("@/components/ThermalTicket"), { ssr: false })
 
 interface CarritoItem {
   producto: Producto

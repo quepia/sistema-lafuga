@@ -1,46 +1,53 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import useSWR from "swr"
 import { api, Estadisticas, ApiError } from "@/lib/api"
 
 interface UseEstadisticasReturn {
   estadisticas: Estadisticas | null
   loading: boolean
+  isValidating: boolean
   error: string | null
   refetch: () => Promise<void>
 }
 
+/**
+ * Hook for fetching statistics with SWR caching
+ * - Shows cached/stale data immediately while revalidating in background
+ * - No blocking loading states on tab switch
+ * - Automatic deduplication of concurrent requests
+ */
 export function useEstadisticas(): UseEstadisticasReturn {
-  const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchEstadisticas = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const result = await api.obtenerEstadisticas()
-      setEstadisticas(result)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError("Error al cargar estadísticas")
+  const { data, error, isLoading, isValidating, mutate } = useSWR<Estadisticas>(
+    "estadisticas",
+    async () => {
+      try {
+        return await api.obtenerEstadisticas()
+      } catch (err) {
+        if (err instanceof ApiError) {
+          throw new Error(err.message)
+        }
+        throw new Error("Error al cargar estadísticas")
       }
-    } finally {
-      setLoading(false)
+    },
+    {
+      // Statistics don't change frequently, so we can use longer cache
+      dedupingInterval: 60000, // 1 minute deduplication
+      revalidateOnFocus: false,
     }
-  }, [])
+  )
 
-  useEffect(() => {
-    fetchEstadisticas()
-  }, [fetchEstadisticas])
+  const refetch = async () => {
+    await mutate()
+  }
 
   return {
-    estadisticas,
-    loading,
-    error,
-    refetch: fetchEstadisticas,
+    estadisticas: data ?? null,
+    // Only show loading on initial load (no cached data)
+    loading: isLoading && !data,
+    // Indicates background revalidation in progress
+    isValidating,
+    error: error?.message ?? null,
+    refetch,
   }
 }

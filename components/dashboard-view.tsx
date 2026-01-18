@@ -10,9 +10,10 @@ import CsvUploader from "@/components/CsvUploader"
 import { useEstadisticas } from "@/hooks/use-estadisticas"
 
 export default function DashboardView() {
-  const { estadisticas, loading, error, refetch } = useEstadisticas()
+  const { estadisticas, loading, isValidating, error, refetch } = useEstadisticas()
 
-  if (error) {
+  // Only show full error state if no cached data is available
+  if (error && !estadisticas) {
     return (
       <div className="space-y-6">
         <Alert variant="destructive">
@@ -182,8 +183,8 @@ export default function DashboardView() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Productos por Categoría</CardTitle>
-          <Button variant="ghost" size="sm" onClick={refetch} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          <Button variant="ghost" size="sm" onClick={refetch} disabled={isValidating}>
+            <RefreshCw className={`h-4 w-4 ${isValidating ? "animate-spin" : ""}`} />
           </Button>
         </CardHeader>
         <CardContent>
