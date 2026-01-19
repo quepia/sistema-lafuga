@@ -18,7 +18,7 @@ export default function ProtectedLayout({
 
   return (
     <SWRProvider>
-      <div className="flex h-screen w-full max-w-[100vw] overflow-x-hidden bg-muted">
+      <div className="flex min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden bg-muted">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main Content */}
@@ -61,7 +61,7 @@ export default function ProtectedLayout({
           </header>
 
           {/* Content Area */}
-          <div className="h-[calc(100vh-65px)] sm:h-[calc(100vh-73px)] overflow-auto p-3 sm:p-6">
+          <div className="flex-1 overflow-auto p-3 sm:p-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             {children}
           </div>
         </main>

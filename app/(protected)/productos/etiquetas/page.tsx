@@ -334,7 +334,7 @@ export default function EtiquetasPage() {
 
                 {/* Floating Action Button */}
                 {selectedProducts.size > 0 && (
-                    <div className="fixed bottom-6 right-6 z-40">
+                    <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-40">
                         <Button
                             size="lg"
                             className="bg-[#006AC0] hover:bg-[#005a9e] shadow-lg gap-2 text-base px-6"

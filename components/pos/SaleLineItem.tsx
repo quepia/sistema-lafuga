@@ -46,7 +46,7 @@ export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, 
   }
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border rounded-lg bg-white shadow-sm hover:shadow-md transition-all">
+    <div className="flex flex-col gap-3 p-3 sm:p-4 border rounded-lg bg-white shadow-sm hover:shadow-md transition-all">
       <div className="flex-1 w-full">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{item.producto.nombre}</span>

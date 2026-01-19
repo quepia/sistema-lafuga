@@ -112,7 +112,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           </nav>
 
           {/* User Profile */}
-          <div className="border-t border-white/20 p-4">
+          <div className="border-t border-white/20 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-3 rounded-lg px-4 py-3">
               {user?.picture ? (
                 <Image

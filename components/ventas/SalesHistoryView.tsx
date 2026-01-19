@@ -112,8 +112,8 @@ export default function SalesHistoryView() {
             )}
 
             <Card>
-                <CardContent className="p-0">
-                    <Table>
+                <CardContent className="p-0 overflow-x-auto">
+                    <Table className="min-w-[600px]">
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Fecha</TableHead>
@@ -198,7 +198,7 @@ export default function SalesHistoryView() {
 
             {/* Sale Detail Dialog */}
             <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
-                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-3xl max-h-[85dvh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center justify-between">
                             <span>Detalle de Venta</span>
