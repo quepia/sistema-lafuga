@@ -198,153 +198,87 @@ export default function SalesHistoryView() {
 
             {/* Sale Detail Dialog */}
             <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
-                <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto p-0">
+                <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
+                    <DialogTitle className="sr-only">Detalle de Venta</DialogTitle>
                     {selectedSale && (
-                        <>
-                            {/* Header Section */}
-                            <div className="sticky top-0 bg-background z-10 border-b">
-                                <div className="p-4 sm:p-6">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <div>
-                                            <h2 className="text-lg sm:text-xl font-bold text-brand-dark">Detalle de Venta</h2>
-                                            <p className="text-sm text-muted-foreground mt-0.5">
-                                                {format(new Date(selectedSale.created_at), "dd 'de' MMMM 'de' yyyy 'a las' HH:mm", { locale: es })}
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Button size="sm" variant="outline" onClick={() => setShowPrintOptions(true)}>
-                                                <Printer className="h-4 w-4 mr-2" />
-                                                Imprimir
-                                            </Button>
-                                            <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">
-                                                #{selectedSale.id.slice(0, 8).toUpperCase()}
-                                            </span>
-                                        </div>
-                                    </div>
+                        <div className="space-y-4">
+                            {/* Header */}
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                    <h2 className="text-lg font-bold">Detalle de Venta</h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        {format(new Date(selectedSale.created_at), "dd/MM/yyyy HH:mm", { locale: es })}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                    <Button size="sm" variant="outline" onClick={() => setShowPrintOptions(true)}>
+                                        <Printer className="h-4 w-4 mr-1" />
+                                        Imprimir
+                                    </Button>
+                                    <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                                        #{selectedSale.id.slice(0, 8).toUpperCase()}
+                                    </span>
                                 </div>
                             </div>
 
-                            {/* Content Section */}
-                            <div className="p-4 sm:p-6 space-y-6">
-                                {/* Sale Summary Card */}
-                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-                                    <div className="bg-muted/40 rounded-lg p-3 sm:p-4">
-                                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Cliente</span>
-                                        <p className="font-semibold mt-1 text-sm sm:text-base truncate">
-                                            {selectedSale.cliente_nombre || 'General'}
-                                        </p>
-                                    </div>
-                                    <div className="bg-muted/40 rounded-lg p-3 sm:p-4">
-                                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Pago</span>
-                                        <p className="font-semibold mt-1 text-sm sm:text-base">
-                                            {selectedSale.metodo_pago}
-                                        </p>
-                                    </div>
-                                    <div className="bg-muted/40 rounded-lg p-3 sm:p-4">
-                                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Tipo</span>
-                                        <div className="mt-1">
-                                            <Badge className={`${selectedSale.tipo_venta === 'MAYOR' ? 'bg-[#FF1F8F]' : 'bg-[#006AC0]'} text-xs`}>
-                                                {selectedSale.tipo_venta}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-brand-dark to-brand-dark/80 text-white rounded-lg p-3 sm:p-4">
-                                        <span className="text-xs uppercase tracking-wide opacity-80">Total</span>
-                                        <p className="font-bold text-lg sm:text-xl mt-1">
-                                            ${selectedSale.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                                        </p>
-                                    </div>
+                            {/* Summary Grid - 2 columns always */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-muted/50 rounded-lg p-3">
+                                    <p className="text-xs text-muted-foreground">Cliente</p>
+                                    <p className="font-medium text-sm truncate">
+                                        {selectedSale.cliente_nombre || 'General'}
+                                    </p>
                                 </div>
+                                <div className="bg-muted/50 rounded-lg p-3">
+                                    <p className="text-xs text-muted-foreground">Pago</p>
+                                    <p className="font-medium text-sm">{selectedSale.metodo_pago}</p>
+                                </div>
+                                <div className="bg-muted/50 rounded-lg p-3">
+                                    <p className="text-xs text-muted-foreground">Tipo</p>
+                                    <Badge className={`${selectedSale.tipo_venta === 'MAYOR' ? 'bg-[#FF1F8F]' : 'bg-[#006AC0]'} text-xs mt-1`}>
+                                        {selectedSale.tipo_venta}
+                                    </Badge>
+                                </div>
+                                <div className="bg-brand-dark text-white rounded-lg p-3">
+                                    <p className="text-xs opacity-80">Total</p>
+                                    <p className="font-bold text-lg">
+                                        ${selectedSale.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                                    </p>
+                                </div>
+                            </div>
 
-                                {/* Products Section */}
-                                <div>
-                                    <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-3">
-                                        Productos ({selectedSale.productos.length})
-                                    </h3>
+                            {/* Products */}
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground uppercase mb-2">
+                                    Productos ({selectedSale.productos.length})
+                                </p>
+                                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                                    {selectedSale.productos.map((prod: any, idx) => {
+                                        const isCustom = isExtended(prod) && prod.tipo_precio === 'custom';
 
-                                    {/* Desktop Table */}
-                                    <div className="hidden sm:block border rounded-lg overflow-hidden">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow className="bg-muted/30">
-                                                    <TableHead className="font-semibold">Producto</TableHead>
-                                                    <TableHead className="text-center font-semibold w-20">Cant.</TableHead>
-                                                    <TableHead className="text-right font-semibold w-28">P. Unit.</TableHead>
-                                                    <TableHead className="text-right font-semibold w-28">Subtotal</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {selectedSale.productos.map((prod: any, idx) => {
-                                                    const isCustom = isExtended(prod) && prod.tipo_precio === 'custom';
-
-                                                    return (
-                                                        <TableRow key={idx}>
-                                                            <TableCell>
-                                                                <div className="flex flex-col gap-0.5">
-                                                                    <span className="font-medium">{prod.nombre_producto}</span>
-                                                                    {isExtended(prod) && prod.tipo_precio && prod.tipo_precio !== 'custom' && (
-                                                                        <span className="text-[10px] text-muted-foreground uppercase">
-                                                                            Precio {prod.tipo_precio}
-                                                                        </span>
-                                                                    )}
-                                                                    {isCustom && (
-                                                                        <span className="text-[10px] text-orange-600 font-medium">
-                                                                            Precio Manual
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </TableCell>
-                                                            <TableCell className="text-center font-medium">{prod.cantidad}</TableCell>
-                                                            <TableCell className="text-right">
-                                                                ${prod.precio_unitario.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                                                            </TableCell>
-                                                            <TableCell className="text-right font-semibold">
-                                                                ${prod.subtotal.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )
-                                                })}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-
-                                    {/* Mobile Card List */}
-                                    <div className="sm:hidden space-y-2">
-                                        {selectedSale.productos.map((prod: any, idx) => {
-                                            const isCustom = isExtended(prod) && prod.tipo_precio === 'custom';
-
-                                            return (
-                                                <div key={idx} className="border rounded-lg p-3 bg-card">
-                                                    <div className="flex justify-between items-start gap-2">
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-sm truncate">{prod.nombre_producto}</p>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                {isExtended(prod) && prod.tipo_precio && prod.tipo_precio !== 'custom' && (
-                                                                    <span className="text-[10px] text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded">
-                                                                        {prod.tipo_precio}
-                                                                    </span>
-                                                                )}
-                                                                {isCustom && (
-                                                                    <span className="text-[10px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">
-                                                                        Manual
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <p className="font-bold text-sm whitespace-nowrap">
-                                                            ${prod.subtotal.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                                                        </p>
-                                                    </div>
-                                                    <div className="flex justify-between items-center mt-2 pt-2 border-t text-xs text-muted-foreground">
-                                                        <span>{prod.cantidad} × ${prod.precio_unitario.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
-                                                    </div>
+                                        return (
+                                            <div key={idx} className="border rounded-lg p-2 text-sm">
+                                                <div className="flex justify-between gap-2">
+                                                    <span className="font-medium truncate flex-1">{prod.nombre_producto}</span>
+                                                    <span className="font-bold whitespace-nowrap">
+                                                        ${prod.subtotal.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                                                    </span>
                                                 </div>
-                                            )
-                                        })}
-                                    </div>
+                                                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                                                    <span>
+                                                        {prod.cantidad} × ${prod.precio_unitario.toLocaleString("es-AR")}
+                                                        {isExtended(prod) && prod.tipo_precio && prod.tipo_precio !== 'custom' && (
+                                                            <span className="ml-1 uppercase">({prod.tipo_precio})</span>
+                                                        )}
+                                                        {isCustom && <span className="ml-1 text-orange-600">(Manual)</span>}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
-                        </>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>
