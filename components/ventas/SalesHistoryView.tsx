@@ -4,7 +4,8 @@ import TicketPrint from "@/components/ticket-print"
 import ThermalTicket from "@/components/ThermalTicket"
 import { PrintOptionsDialog, PrintFormat } from "@/components/PrintOptionsDialog"
 import { useState, useEffect, useCallback } from "react"
-import { Eye, Search, AlertCircle, FileText, Calendar, Printer } from "lucide-react"
+import { Eye, Search, AlertCircle, FileText, Calendar, Printer, Trash2 } from "lucide-react"
+import { DeleteTicketDialog } from "@/components/ventas/DeleteTicketDialog"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import {
@@ -43,6 +44,8 @@ export default function SalesHistoryView() {
     const [showPrintOptions, setShowPrintOptions] = useState(false)
     const [printFormat, setPrintFormat] = useState<PrintFormat>(null)
     const [filterDate, setFilterDate] = useState("")
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+    const [saleToDelete, setSaleToDelete] = useState<Venta | null>(null)
 
     const fetchVentas = useCallback(async () => {
         setLoading(true)
@@ -67,6 +70,21 @@ export default function SalesHistoryView() {
             setLoading(false)
         }
     }, [page, filterDate])
+
+    const handleDeleteTicket = async () => {
+        if (!saleToDelete) return
+
+        try {
+            await api.eliminarVenta(saleToDelete.id)
+            setVentas(prev => prev.filter(v => v.id !== saleToDelete.id))
+            setTotal(prev => prev - 1)
+            setShowDeleteDialog(false)
+            setSaleToDelete(null)
+        } catch (error) {
+            console.error("Error al eliminar venta:", error)
+            setError("No se pudo eliminar la venta. Intente nuevamente.")
+        }
+    }
 
     useEffect(() => {
         fetchVentas()
@@ -161,9 +179,22 @@ export default function SalesHistoryView() {
                                             ${venta.total.toLocaleString("es-AR")}
                                         </TableCell>
                                         <TableCell>
-                                            <Button variant="ghost" size="icon" onClick={() => setSelectedSale(venta)}>
-                                                <Eye className="h-4 w-4" />
-                                            </Button>
+                                            <div className="flex items-center gap-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        setSaleToDelete(venta)
+                                                        setShowDeleteDialog(true)
+                                                    }}
+                                                    className="text-muted-foreground hover:text-destructive"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" onClick={() => setSelectedSale(venta)}>
+                                                    <Eye className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -321,6 +352,13 @@ export default function SalesHistoryView() {
                     }}
                 />
             )}
+
+            <DeleteTicketDialog
+                open={showDeleteDialog}
+                onOpenChange={setShowDeleteDialog}
+                venta={saleToDelete}
+                onConfirm={handleDeleteTicket}
+            />
         </div>
     )
 }
