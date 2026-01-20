@@ -25,6 +25,7 @@ import { toast } from "sonner"
 import { PrecioUnitario } from "@/components/productos/PrecioUnitario"
 import { DeleteProductDialog } from "@/components/productos/DeleteProductDialog"
 import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
+import { ProductImage } from "@/components/productos/ProductImage"
 import { api, ApiError } from "@/lib/api"
 
 const ITEMS_PER_PAGE = 20
@@ -36,6 +37,12 @@ export default function PriceConsultationView() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [offset, setOffset] = useState(0)
   const [showDeleted, setShowDeleted] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Evitar hydration mismatch en componentes interactivos
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   // Local state for optimistic updates
   const [localProductos, setLocalProductos] = useState<Producto[] | null>(null)
@@ -170,19 +177,24 @@ export default function PriceConsultationView() {
                 />
                 <Label htmlFor="show-deleted" className="text-sm cursor-pointer select-none">Mostrar eliminados</Label>
               </div>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
-                  <SelectValue placeholder="Categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {categorias.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Select de Categorías (Client-only para evitar hydration mismatch) */}
+              {isMounted ? (
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
+                    <SelectValue placeholder="Categoría" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {categorias.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="w-full sm:w-[180px] h-10 sm:h-12 bg-white border rounded-md" /> /* Placeholder para evitar salto */
+              )}
             </div>
           </div>
         </CardContent>
@@ -290,26 +302,40 @@ export default function PriceConsultationView() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-3 sm:pt-4 p-3 sm:p-6">
-                {/* Price Display */}
+              <CardContent className="pt-0 sm:pt-1 p-3 sm:p-6">
+                {/* Product Image - Banner layout */}
+                <div className="mb-2 sm:mb-3">
+                  <ProductImage
+                    productId={producto.id}
+                    productName={producto.nombre}
+                    barcode={producto.codigo_barra}
+                    imageUrl={producto.image_url ?? null}
+                    imageSource={producto.image_source ?? null}
+                    variant="banner"
+                    showSyncButton={true}
+                    showUploadButton={true}
+                  />
+                </div>
+
+                {/* Prices - Full Width */}
                 <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3 sm:mb-4">
-                  <div className="rounded-lg bg-[#006AC0] p-2 sm:p-4 text-white">
+                  <div className="rounded-lg bg-[#006AC0] p-2 sm:p-4 text-white text-center">
                     <div className="text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1 opacity-90">MENOR</div>
-                    <div className="text-base sm:text-xl font-bold">
+                    <div className="text-base sm:text-xl font-bold whitespace-nowrap">
                       ${producto.precio_menor.toLocaleString("es-AR")}
                     </div>
                     <div className="text-[10px] sm:text-xs mt-0.5 sm:mt-1 opacity-75 hidden sm:block">Minorista</div>
                   </div>
-                  <div className="rounded-lg bg-[#FF1F8F] p-2 sm:p-4 text-white">
+                  <div className="rounded-lg bg-[#FF1F8F] p-2 sm:p-4 text-white text-center">
                     <div className="text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1 opacity-90">MAYOR</div>
-                    <div className="text-base sm:text-xl font-bold">
+                    <div className="text-base sm:text-xl font-bold whitespace-nowrap">
                       ${producto.precio_mayor.toLocaleString("es-AR")}
                     </div>
                     <div className="text-[10px] sm:text-xs mt-0.5 sm:mt-1 opacity-75 hidden sm:block">Mayorista</div>
                   </div>
-                  <div className="rounded-lg bg-gray-600 p-2 sm:p-4 text-white">
+                  <div className="rounded-lg bg-gray-600 p-2 sm:p-4 text-white text-center">
                     <div className="text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1 opacity-90">COSTO</div>
-                    <div className="text-base sm:text-xl font-bold">
+                    <div className="text-base sm:text-xl font-bold whitespace-nowrap">
                       ${producto.costo.toLocaleString("es-AR")}
                     </div>
                     <div className="text-[10px] sm:text-xs mt-0.5 sm:mt-1 opacity-75 hidden sm:block">Compra</div>
@@ -356,49 +382,54 @@ export default function PriceConsultationView() {
             </Card>
           ))}
         </div>
-      )}
+      )
+      }
 
       {/* Empty State */}
-      {!loading && productos.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Search className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-lg font-medium text-brand-dark">No se encontraron productos</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              {searchInput
-                ? "Intenta con otros términos de búsqueda"
-                : "No hay productos en esta categoría"}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {
+        !loading && productos.length === 0 && (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <Search className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-lg font-medium text-brand-dark">No se encontraron productos</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                {searchInput
+                  ? "Intenta con otros términos de búsqueda"
+                  : "No hay productos en esta categoría"}
+              </p>
+            </CardContent>
+          </Card>
+        )
+      }
 
       {/* Pagination */}
-      {total > ITEMS_PER_PAGE && !loading && (
-        <div className="flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={handlePrevPage}
-            disabled={offset === 0}
-            className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
-          >
-            <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline">Anterior</span>
-          </Button>
-          <span className="text-xs sm:text-sm text-muted-foreground text-center">
-            {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, total)} de {total}
-          </span>
-          <Button
-            variant="outline"
-            onClick={handleNextPage}
-            disabled={offset + ITEMS_PER_PAGE >= total}
-            className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
-          >
-            <span className="hidden sm:inline">Siguiente</span>
-            <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
-          </Button>
-        </div>
-      )}
+      {
+        total > ITEMS_PER_PAGE && !loading && (
+          <div className="flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={handlePrevPage}
+              disabled={offset === 0}
+              className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
+            >
+              <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Anterior</span>
+            </Button>
+            <span className="text-xs sm:text-sm text-muted-foreground text-center">
+              {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, total)} de {total}
+            </span>
+            <Button
+              variant="outline"
+              onClick={handleNextPage}
+              disabled={offset + ITEMS_PER_PAGE >= total}
+              className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
+            >
+              <span className="hidden sm:inline">Siguiente</span>
+              <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
+          </div>
+        )
+      }
 
       {/* Edit/Create Dialog */}
       <ProductFormDialog
@@ -430,6 +461,6 @@ export default function PriceConsultationView() {
         producto={deletingProduct}
         onConfirm={handleDelete}
       />
-    </div>
+    </div >
   )
 }

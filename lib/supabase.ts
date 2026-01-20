@@ -76,6 +76,11 @@ export interface Producto {
   permite_venta_fraccionada?: boolean; // Allow fractional sales
   estado?: 'activo' | 'inactivo' | 'eliminado'; // Product state
   motivo_eliminacion?: string | null; // Reason for deletion/inactivation
+
+  // NEW FIELDS (Migration 005) - Product Images
+  image_url?: string | null;        // URL of product image
+  image_source?: 'openfoodfacts' | 'google' | 'manual' | 'not_found' | null;
+  image_fetched_at?: string | null; // When image was fetched/updated
 }
 
 /**
