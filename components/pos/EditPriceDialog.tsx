@@ -54,9 +54,9 @@ export function EditPriceDialog({
   userRole = "vendedor",
 }: Props) {
   const [tipoAjuste, setTipoAjuste] = useState<TipoAjuste>("porcentaje")
-  const [porcentaje, setPorcentaje] = useState(0)
-  const [montoDescuento, setMontoDescuento] = useState(0)
-  const [precioFijo, setPrecioFijo] = useState(precioActual)
+  const [porcentajeStr, setPorcentajeStr] = useState("0")
+  const [montoDescuentoStr, setMontoDescuentoStr] = useState("0")
+  const [precioFijoStr, setPrecioFijoStr] = useState(precioActual.toString())
   const [motivo, setMotivo] = useState("")
   const [tipoPrecioSeleccionado, setTipoPrecioSeleccionado] = useState<"menor" | "mayor">(tipoPrecioActual)
 
@@ -64,13 +64,25 @@ export function EditPriceDialog({
   useEffect(() => {
     if (open) {
       setTipoAjuste("porcentaje")
-      setPorcentaje(0)
-      setMontoDescuento(0)
-      setPrecioFijo(precioActual)
+      setPorcentajeStr("0")
+      setMontoDescuentoStr("0")
+      setPrecioFijoStr(precioActual.toString())
       setMotivo("")
       setTipoPrecioSeleccionado(tipoPrecioActual)
     }
   }, [open, precioActual, tipoPrecioActual])
+
+  // Parse string values to numbers
+  const porcentaje = parseFloat(porcentajeStr) || 0
+  const montoDescuento = parseFloat(montoDescuentoStr) || 0
+  const precioFijo = parseFloat(precioFijoStr) || 0
+
+  // Handle numeric input changes
+  const handleNumericChange = (value: string, setter: (v: string) => void) => {
+    if (value === "" || /^\d*\.?\d*$/.test(value)) {
+      setter(value)
+    }
+  }
 
   // Get the base price based on selected price type
   const precioBase = tipoPrecioSeleccionado === "mayor" ? producto.precio_mayor : producto.precio_menor
@@ -183,13 +195,12 @@ export function EditPriceDialog({
                 {tipoAjuste === "porcentaje" && (
                   <div className="flex items-center gap-1 ml-4">
                     <Input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
+                      type="text"
+                      inputMode="decimal"
                       className="w-20 h-8"
-                      value={porcentaje}
-                      onChange={(e) => setPorcentaje(parseFloat(e.target.value) || 0)}
+                      value={porcentajeStr}
+                      onChange={(e) => handleNumericChange(e.target.value, setPorcentajeStr)}
+                      placeholder="0"
                     />
                     <span>%</span>
                   </div>
@@ -205,12 +216,12 @@ export function EditPriceDialog({
                   <div className="flex items-center gap-1 ml-4">
                     <span>$</span>
                     <Input
-                      type="number"
-                      step="1"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       className="w-28 h-8"
-                      value={montoDescuento}
-                      onChange={(e) => setMontoDescuento(parseFloat(e.target.value) || 0)}
+                      value={montoDescuentoStr}
+                      onChange={(e) => handleNumericChange(e.target.value, setMontoDescuentoStr)}
+                      placeholder="0"
                     />
                   </div>
                 )}
@@ -225,12 +236,12 @@ export function EditPriceDialog({
                   <div className="flex items-center gap-1 ml-4">
                     <span>$</span>
                     <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       className="w-28 h-8"
-                      value={precioFijo}
-                      onChange={(e) => setPrecioFijo(parseFloat(e.target.value) || 0)}
+                      value={precioFijoStr}
+                      onChange={(e) => handleNumericChange(e.target.value, setPrecioFijoStr)}
+                      placeholder="0"
                     />
                   </div>
                 )}

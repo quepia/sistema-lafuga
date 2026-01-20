@@ -74,11 +74,16 @@ export function SaleLineItem({ item, onUpdatePrice, onUpdateQuantity, onRemove, 
         <div className="flex items-center gap-1">
           <Input
             type="number"
-            min="0.001"
-            step="0.001"
+            min={item.producto.permite_venta_fraccionada ? "0.001" : "1"}
+            step={item.producto.permite_venta_fraccionada ? "0.001" : "1"}
             className="w-16 h-8 text-center px-1"
             value={item.cantidad}
-            onChange={(e) => onUpdateQuantity(parseFloat(e.target.value) || 0)}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value) || 0
+              // For products without fractional sales, round to nearest integer
+              const cantidad = item.producto.permite_venta_fraccionada ? val : Math.round(val)
+              onUpdateQuantity(cantidad > 0 ? cantidad : 1)
+            }}
           />
           <span className="text-xs text-muted-foreground w-4 text-center">×</span>
         </div>
