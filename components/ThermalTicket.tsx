@@ -597,10 +597,27 @@ export default function ThermalTicket({ venta, onClose }: ThermalTicketProps) {
             margin: 1mm 0 0 0;
           }
 
-          /* Page settings for thermal - 80mm paper */
+          /* Page settings for thermal - 80mm paper, continuous */
           @page {
-            size: 80mm auto;
+            size: 80mm 297mm;
             margin: 0 4mm;
+          }
+
+          /* Prevent page breaks */
+          .thermal-print-container {
+            page-break-inside: avoid;
+          }
+
+          .thermal-ticket {
+            page-break-inside: avoid;
+            page-break-before: avoid;
+            page-break-after: avoid;
+          }
+
+          .thermal-cut-line {
+            page-break-inside: avoid;
+            page-break-before: avoid;
+            page-break-after: avoid;
           }
         }
       `}</style>
