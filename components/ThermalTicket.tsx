@@ -358,18 +358,21 @@ export default function ThermalTicket({ venta, onClose }: ThermalTicketProps) {
             position: absolute;
             left: 0;
             top: 0;
-            width: 58mm;
+            width: 100%;
+            max-width: 80mm;
             background: white !important;
             z-index: 9999;
           }
 
           /* Thermal ticket base styles */
           .thermal-ticket {
-            width: 58mm;
-            padding: 1mm;
+            width: 100%;
+            max-width: 72mm;
+            margin: 0 auto;
+            padding: 2mm;
             font-family: 'Courier New', 'Lucida Console', monospace;
-            font-size: 9pt;
-            line-height: 1.2;
+            font-size: 10pt;
+            line-height: 1.3;
             color: #000;
             background: white !important;
             page-break-inside: avoid;
@@ -383,19 +386,21 @@ export default function ThermalTicket({ venta, onClose }: ThermalTicketProps) {
             font-weight: bold;
             background: #000;
             color: #fff;
-            padding: 0.5mm 2mm;
-            margin: 0 0 1.5mm 0;
+            padding: 1mm 2mm;
+            margin: 0 0 2mm 0;
             display: block;
             letter-spacing: 1px;
           }
 
-          /* Cut line between copies */
+          /* Cut line between copies - minimal spacing */
           .thermal-cut-line {
             text-align: center;
-            padding: 3mm 0;
-            font-size: 9pt;
-            color: #666;
-            letter-spacing: -1px;
+            padding: 1mm 0;
+            margin: 0;
+            font-size: 8pt;
+            color: #000;
+            border-top: 1px dashed #000;
+            border-bottom: 1px dashed #000;
           }
 
           .thermal-cut-line span {
@@ -405,134 +410,145 @@ export default function ThermalTicket({ venta, onClose }: ThermalTicketProps) {
           /* Header */
           .thermal-header {
             text-align: center;
-            padding-bottom: 1.5mm;
+            padding-bottom: 2mm;
           }
 
           .thermal-logo {
-            width: 22mm;
+            width: 25mm;
             height: auto;
-            margin: 0 auto 1.5mm;
+            margin: 0 auto 2mm;
             display: block;
           }
 
           .thermal-tagline {
-            font-size: 7pt;
+            font-size: 8pt;
             margin: 0;
-            line-height: 1.2;
+            line-height: 1.3;
           }
 
           /* Title section */
           .thermal-title-section {
             text-align: center;
-            padding: 1.5mm 0;
+            padding: 2mm 0;
             border-top: 1px dashed #000;
             border-bottom: 1px dashed #000;
-            margin: 1.5mm 0;
+            margin: 2mm 0;
           }
 
           .thermal-title {
-            font-size: 11pt;
+            font-size: 12pt;
             font-weight: bold;
             margin: 0;
-            letter-spacing: 0.5px;
           }
 
           .thermal-subtitle {
-            font-size: 6pt;
-            margin: 0.5mm 0 0 0;
+            font-size: 7pt;
+            margin: 1mm 0 0 0;
             font-weight: bold;
           }
 
           /* Info section */
           .thermal-info {
-            padding: 1.5mm 0;
+            padding: 2mm 0;
           }
 
           .thermal-info-row {
             display: flex;
             justify-content: space-between;
-            font-size: 8pt;
-            line-height: 1.3;
+            font-size: 9pt;
+            line-height: 1.4;
           }
 
           /* Separators */
           .thermal-separator {
             border-top: 1px dashed #000;
-            margin: 1.5mm 0;
+            margin: 2mm 0;
           }
 
           .thermal-separator-double {
             border-top: 2px solid #000;
-            margin: 1.5mm 0;
+            margin: 2mm 0;
           }
 
-          /* Table header */
+          /* Table header - simplified 2 columns */
           .thermal-table-header {
             display: flex;
-            font-size: 7pt;
+            justify-content: space-between;
+            font-size: 8pt;
             font-weight: bold;
-            padding: 0.5mm 0;
+            padding: 1mm 0;
           }
 
           .thermal-col-cant {
-            width: 7mm;
-            text-align: center;
-            flex-shrink: 0;
+            display: none;
           }
 
           .thermal-col-desc {
             flex: 1;
             text-align: left;
-            padding: 0 0.5mm;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            min-width: 0;
           }
 
           .thermal-col-price {
-            width: 12mm;
-            text-align: right;
-            flex-shrink: 0;
+            display: none;
           }
 
           .thermal-col-total {
-            width: 13mm;
             text-align: right;
-            flex-shrink: 0;
+            font-weight: bold;
           }
 
-          /* Products */
+          /* Products - vertical layout to avoid overlap */
           .thermal-products {
-            padding: 0.5mm 0;
+            padding: 1mm 0;
           }
 
           .thermal-product-row {
-            margin-bottom: 0.5mm;
+            margin-bottom: 2mm;
+            padding-bottom: 1mm;
+            border-bottom: 1px dotted #ccc;
+          }
+
+          .thermal-product-row:last-child {
+            border-bottom: none;
           }
 
           .thermal-product-main {
-            display: flex;
-            font-size: 8pt;
-            align-items: flex-start;
+            display: block;
+            font-size: 9pt;
+          }
+
+          .thermal-product-main .thermal-col-cant {
+            display: inline;
+            font-weight: bold;
           }
 
           .thermal-product-main .thermal-col-desc {
-            white-space: normal;
-            word-wrap: break-word;
-            font-size: 7pt;
+            display: inline;
+            font-size: 9pt;
+          }
+
+          .thermal-product-main .thermal-col-price {
+            display: block;
+            text-align: right;
+            font-size: 8pt;
+            color: #333;
+            margin-top: 0.5mm;
+          }
+
+          .thermal-product-main .thermal-col-total {
+            display: block;
+            text-align: right;
+            font-size: 10pt;
+            font-weight: bold;
           }
 
           .thermal-product-unit-price {
-            font-size: 6pt;
-            color: #333;
-            padding-left: 8mm;
-            margin-top: 0.3mm;
+            display: none;
           }
 
           /* Total section */
           .thermal-total-section {
-            padding: 1.5mm 0;
+            padding: 2mm 0;
           }
 
           .thermal-total-row {
@@ -542,49 +558,49 @@ export default function ThermalTicket({ venta, onClose }: ThermalTicketProps) {
           }
 
           .thermal-total-label {
-            font-size: 11pt;
+            font-size: 12pt;
             font-weight: bold;
           }
 
           .thermal-total-value {
-            font-size: 12pt;
+            font-size: 14pt;
             font-weight: bold;
           }
 
           /* Payment */
           .thermal-payment {
             text-align: center;
-            font-size: 8pt;
-            padding: 1.5mm 0;
+            font-size: 9pt;
+            padding: 2mm 0;
           }
 
           /* Footer */
           .thermal-footer {
             text-align: center;
-            padding: 1.5mm 0;
+            padding: 2mm 0;
           }
 
           .thermal-validity {
-            font-size: 7pt;
+            font-size: 8pt;
             font-weight: bold;
-            margin: 0 0 1.5mm 0;
+            margin: 0 0 2mm 0;
           }
 
           .thermal-thanks {
-            font-size: 8pt;
+            font-size: 9pt;
             margin: 0;
           }
 
           .thermal-website {
-            font-size: 7pt;
+            font-size: 8pt;
             color: #666;
-            margin: 0.5mm 0 0 0;
+            margin: 1mm 0 0 0;
           }
 
-          /* Page settings for thermal - auto height based on content */
+          /* Page settings for thermal - 80mm paper */
           @page {
-            size: 58mm auto;
-            margin: 0;
+            size: 80mm auto;
+            margin: 0 4mm;
           }
         }
       `}</style>
