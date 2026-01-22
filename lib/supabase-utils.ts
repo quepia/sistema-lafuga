@@ -29,17 +29,27 @@ export async function logProductChange(
   campo: string,
   valorAnterior: unknown,
   valorNuevo: unknown,
-  motivo?: string
+  motivo?: string,
+  usuarioId?: string | null, // UUID of the user
+  usuarioNombre?: string | null // Name/Email of the user
 ): Promise<{ data: HistorialProducto | null; error: Error | null }> {
   try {
+    // Append user name to motive if provided, for visibility
+    let motivoFinal = motivo || null;
+    if (usuarioNombre) {
+      motivoFinal = motivoFinal
+        ? `${motivoFinal} (por ${usuarioNombre})`
+        : `Por ${usuarioNombre}`;
+    }
+
     const { data, error } = await supabase.from(TABLA_HISTORIAL).insert({
       id_producto,
       codigo_sku,
       campo_modificado: campo,
       valor_anterior: valorAnterior !== null && valorAnterior !== undefined ? String(valorAnterior) : null,
       valor_nuevo: valorNuevo !== null && valorNuevo !== undefined ? String(valorNuevo) : null,
-      motivo: motivo || null,
-      id_usuario: null, // Set to user ID if using auth
+      motivo: motivoFinal,
+      id_usuario: usuarioId || null,
     }).select().single();
 
     if (error) {

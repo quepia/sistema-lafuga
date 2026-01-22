@@ -342,7 +342,15 @@ export const api = {
   /**
    * Actualiza un producto existente
    */
-  async actualizarProducto(id: string, datos: ProductoUpdate): Promise<Producto> {
+  /**
+   * Actualiza un producto existente
+   */
+  async actualizarProducto(
+    id: string,
+    datos: ProductoUpdate,
+    usuarioId?: string,
+    usuarioNombre?: string
+  ): Promise<Producto> {
     // Obtener estado anterior para historial
     const { data: anterior } = await supabase
       .from(TABLA_PRODUCTOS)
@@ -382,7 +390,9 @@ export const api = {
             campo,
             valAnterior,
             valNuevo,
-            'Actualización manual'
+            'Actualización manual',
+            usuarioId,
+            usuarioNombre
           ).catch(console.error);
         }
       }
@@ -414,7 +424,13 @@ export const api = {
    * Migrar producto a un nuevo ID (Crear nuevo y eliminar anterior)
    * Se usa para "editar" el ID de un producto.
    */
-  async migrarProducto(idAnterior: string, nuevoId: string, datos: ProductoInsert): Promise<Producto> {
+  async migrarProducto(
+    idAnterior: string,
+    nuevoId: string,
+    datos: ProductoInsert,
+    usuarioId?: string,
+    usuarioNombre?: string
+  ): Promise<Producto> {
     // 1. Verificar si el nuevo ID ya existe
     const { data: existe } = await supabase
       .from(TABLA_PRODUCTOS)
@@ -446,6 +462,18 @@ export const api = {
 
       handleSupabaseError(deleteError);
     }
+
+    // Log ID change (manual log)
+    logProductChange(
+      nuevoId,
+      nuevoId,
+      'id',
+      idAnterior,
+      nuevoId,
+      'Migración de ID',
+      usuarioId,
+      usuarioNombre
+    ).catch(console.error);
 
     return nuevoProducto;
   },

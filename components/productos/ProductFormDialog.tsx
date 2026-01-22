@@ -32,6 +32,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/contexts/auth-context"
 import { api, Producto, ProductoInsert, ApiError } from "@/lib/api"
 import { useCategorias } from "@/hooks/use-categorias"
 import { toast } from "sonner"
@@ -46,6 +47,7 @@ interface Props {
 }
 
 export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEditar }: Props) {
+    const { user } = useAuth()
     const [loading, setLoading] = useState(false)
     const [formData, setFormData] = useState<Partial<ProductoInsert>>({
         id: "",
@@ -199,12 +201,19 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                     result = await api.migrarProducto(
                         productoEditar.id,
                         formData.id!,
-                        { ...commonData, id: formData.id! } as ProductoInsert
+                        { ...commonData, id: formData.id! } as ProductoInsert,
+                        user?.id,
+                        user?.name || user?.email
                     )
                     toast.success("Producto migrado a nuevo ID correctamente")
                 } else {
                     // Standard Update
-                    result = await api.actualizarProducto(productoEditar.id, commonData)
+                    result = await api.actualizarProducto(
+                        productoEditar.id,
+                        commonData,
+                        user?.id,
+                        user?.name || user?.email
+                    )
                     toast.success("Producto actualizado correctamente")
                 }
             } else {
