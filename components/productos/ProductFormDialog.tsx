@@ -177,29 +177,41 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
             const precioMayor = parseFloat(precioMayorStr) || 0
             const costo = parseFloat(costoStr) || 0
 
+            // Base data for update/create
+            const commonData = {
+                nombre: formData.nombre,
+                categoria: formData.categoria || null,
+                precio_menor: precioMenor,
+                precio_mayor: precioMayor,
+                costo: costo,
+                codigo_barra: formData.codigo_barra || null,
+                descripcion: formData.descripcion || null,
+                peso_neto: formData.peso_neto ? Number(formData.peso_neto) : null,
+                volumen_neto: formData.volumen_neto ? Number(formData.volumen_neto) : null,
+                permite_venta_fraccionada: formData.permite_venta_fraccionada,
+                unidad: formData.unidad,
+            }
+
             if (isEditing) {
-                // Update
-                result = await api.actualizarProducto(productoEditar.id, {
-                    nombre: formData.nombre,
-                    categoria: formData.categoria || null,
-                    precio_menor: precioMenor,
-                    precio_mayor: precioMayor,
-                    costo: costo,
-                    codigo_barra: formData.codigo_barra || null,
-                    descripcion: formData.descripcion || null,
-                    peso_neto: formData.peso_neto ? Number(formData.peso_neto) : null,
-                    volumen_neto: formData.volumen_neto ? Number(formData.volumen_neto) : null,
-                    permite_venta_fraccionada: formData.permite_venta_fraccionada,
-                    unidad: formData.unidad,
-                })
-                toast.success("Producto actualizado correctamente")
+                // Check if ID has changed
+                if (formData.id !== productoEditar.id) {
+                    // ID migration
+                    result = await api.migrarProducto(
+                        productoEditar.id,
+                        formData.id!,
+                        { ...commonData, id: formData.id! } as ProductoInsert
+                    )
+                    toast.success("Producto migrado a nuevo ID correctamente")
+                } else {
+                    // Standard Update
+                    result = await api.actualizarProducto(productoEditar.id, commonData)
+                    toast.success("Producto actualizado correctamente")
+                }
             } else {
                 // Create
                 result = await api.crearProducto({
-                    ...formData,
-                    precio_menor: precioMenor,
-                    precio_mayor: precioMayor,
-                    costo: costo,
+                    ...commonData,
+                    id: formData.id!,
                 } as ProductoInsert)
                 toast.success("Producto creado exitosamente")
             }
@@ -268,10 +280,15 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                                     id="id"
                                     value={formData.id}
                                     onChange={(e) => handleInputChange("id", e.target.value)}
-                                    disabled={isEditing}
+                                    // disabled={isEditing} // Allow editing!
                                     placeholder="Ej: BEB-COCA-1.5"
-                                    className={isEditing ? "bg-muted font-mono" : "font-mono uppercase"}
+                                    className={"font-mono uppercase"}
                                 />
+                                {isEditing && formData.id !== productoEditar?.id && (
+                                    <p className="text-xs text-amber-600 font-medium">
+                                        Cambiar el ID migrará el producto (si no tiene historial bloqueante).
+                                    </p>
+                                )}
                             </div>
 
                             <div className="space-y-2">

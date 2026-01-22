@@ -163,48 +163,73 @@ export const api = {
   } = {}): Promise<ProductosPaginados> {
     const { query, categoria, precio_min, precio_max, incluirEliminados = false, limit = 50, offset = 0 } = params;
 
-    // Primero obtener el total exacto (sin límite de 1000)
-    let countQuery = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head: true });
+    // Base query builder
+    const buildQuery = (head = false) => {
+      let q = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head });
 
-    if (!incluirEliminados) {
-      countQuery = countQuery.neq('estado', 'eliminado');
-    }
-    if (categoria) {
-      countQuery = countQuery.eq('categoria', categoria);
-    }
-    if (query) {
-      countQuery = countQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
-    }
-    if (precio_min !== undefined) {
-      countQuery = countQuery.gte('precio_menor', precio_min);
-    }
-    if (precio_max !== undefined) {
-      countQuery = countQuery.lte('precio_menor', precio_max);
-    }
+      if (!incluirEliminados) {
+        q = q.neq('estado', 'eliminado');
+      }
+      if (categoria) {
+        q = q.eq('categoria', categoria);
+      }
+      if (precio_min !== undefined) {
+        q = q.gte('precio_menor', precio_min);
+      }
+      if (precio_max !== undefined) {
+        q = q.lte('precio_menor', precio_max);
+      }
 
+      // Improved Search Logic: Multi-word support
+      if (query && query.trim()) {
+        const cleanQuery = query.trim();
+        // Check if it's potentially an ID or Barcode (single word, no spaces usually)
+        const isSingleToken = !cleanQuery.includes(' ');
+
+        if (isSingleToken) {
+          // Classic OR search for ID, Name, Barcode
+          q = q.or(`nombre.ilike.%${cleanQuery}%,id.ilike.%${cleanQuery}%,codigo_barra.ilike.%${cleanQuery}%`);
+        } else {
+          // Multi-word search: Name must match ALL words (AND logic)
+          // OR exact ID match OR exact Barcode match
+          // Note: Supabase doesn't easily support mixed AND/OR groups in one line without raw SQL or RPC.
+          // Workaround for simple cases: Use an OR group where:
+          // 1. ID ilike query OR
+          // 2. Barcode ilike query OR
+          // 3. Name matches all tokens
+
+          // However, for "suavizante suelto", we want to match names containing "suavizante" AND "suelto".
+          // Supabase 'ilike' doesn't support ALL.
+          // We can use `.textSearch` but it requires a setup. 
+          // Simpler approach for now using PostgREST syntax:
+          // We will prioritize name search if spacing exists.
+
+          const tokens = cleanQuery.split(/\s+/).map(t => `%${t}%`);
+          // Chain ILIKEs for name
+          tokens.forEach(token => {
+            q = q.ilike('nombre', token);
+          });
+          // Note: This effectively searches for Name containing T1 AND Name containing T2...
+          // It excludes ID/Barcode search in this specific multi-word branch which is usually acceptable 
+          // because IDs/Barcodes rarely have spaces.
+        }
+      }
+
+      return q;
+    };
+
+    // Get Count
+    const countQuery = buildQuery(true);
     const { count, error: countError } = await countQuery;
     if (countError) handleSupabaseError(countError);
 
-    // Luego obtener los productos paginados
-    let dataQuery = supabase.from(TABLA_PRODUCTOS).select('*');
+    // Get Data
+    let dataQuery = buildQuery(false);
 
-    if (!incluirEliminados) {
-      dataQuery = dataQuery.neq('estado', 'eliminado');
-    }
-    if (categoria) {
-      dataQuery = dataQuery.eq('categoria', categoria);
-    }
-    if (query) {
-      dataQuery = dataQuery.or(`nombre.ilike.%${query}%,id.ilike.%${query}%,codigo_barra.ilike.%${query}%`);
-    }
-    if (precio_min !== undefined) {
-      dataQuery = dataQuery.gte('precio_menor', precio_min);
-    }
-    if (precio_max !== undefined) {
-      dataQuery = dataQuery.lte('precio_menor', precio_max);
-    }
+    // Default sorting
+    dataQuery = dataQuery.order('nombre', { ascending: true });
 
-    // Usar range() para paginación (evita el límite de 1000)
+    // Pagination
     dataQuery = dataQuery.range(offset, offset + limit - 1);
 
     const { data, error } = await dataQuery;
@@ -279,8 +304,9 @@ export const api = {
 
   /**
    * Busca productos por texto (nombre, código, código de barras)
+   * Aumentado el limite por defecto a 50
    */
-  async buscarProductos(query: string, limite: number = 20): Promise<Producto[]> {
+  async buscarProductos(query: string, limite: number = 50): Promise<Producto[]> {
     const result = await this.listarProductos({ query, limit: limite });
     return result.productos;
   },
@@ -345,9 +371,6 @@ export const api = {
       for (const campo of cambios) {
         if (ignorar.includes(campo)) continue;
 
-        // Comparar valores (usando '==' para loose equality o '===' si tipos coinciden exacto)
-        // Datos puede traer parcial, data trae todo.
-        // Comparamos anterior[campo] vs data[campo]
         const valAnterior = anterior[campo as keyof Producto];
         const valNuevo = data[campo as keyof Producto];
 
@@ -385,6 +408,46 @@ export const api = {
 
     if (error) handleSupabaseError(error);
     return data as Producto;
+  },
+
+  /**
+   * Migrar producto a un nuevo ID (Crear nuevo y eliminar anterior)
+   * Se usa para "editar" el ID de un producto.
+   */
+  async migrarProducto(idAnterior: string, nuevoId: string, datos: ProductoInsert): Promise<Producto> {
+    // 1. Verificar si el nuevo ID ya existe
+    const { data: existe } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select('id')
+      .eq('id', nuevoId)
+      .maybeSingle(); // Usar maybeSingle para no lanzar error si no existe
+
+    if (existe) {
+      throw new ApiError(`El codigo ${nuevoId} ya esta en uso.`, 409);
+    }
+
+    // 2. Crear el nuevo producto
+    const nuevoProducto = await this.crearProducto({ ...datos, id: nuevoId });
+
+    // 3. Intentar eliminar el anterior
+    const { error: deleteError } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .delete()
+      .eq('id', idAnterior);
+
+    if (deleteError) {
+      // Si falla la eliminacion (probablemente por Foreign Key constraints en ventas),
+      // revertimos la creacion del nuevo producto
+      await supabase.from(TABLA_PRODUCTOS).delete().eq('id', nuevoId);
+
+      if (deleteError.code === '23503') { // ForeignKey Violation
+        throw new ApiError('No se puede cambiar el ID porque el producto tiene historial de ventas/movimientos asociados or otros registros dependientes.', 400, deleteError.code);
+      }
+
+      handleSupabaseError(deleteError);
+    }
+
+    return nuevoProducto;
   },
 
   /**

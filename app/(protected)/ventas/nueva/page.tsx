@@ -102,7 +102,7 @@ export default function NuevaVentaPage() {
 
     setSearching(true)
     try {
-      const productos = await api.buscarProductos(query, 10)
+      const productos = await api.buscarProductos(query, 50)
       setSearchResults(productos)
     } catch (error) {
       console.error("Error buscando productos:", error)
