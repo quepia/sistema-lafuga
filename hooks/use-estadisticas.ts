@@ -34,6 +34,9 @@ export function useEstadisticas(): UseEstadisticasReturn {
       // Statistics don't change frequently, so we can use longer cache
       dedupingInterval: 60000, // 1 minute deduplication
       revalidateOnFocus: false,
+      revalidateOnReconnect: false, // Don't crash on reconnect
+      shouldRetryOnError: false, // Don't infinite loop on error
+      errorRetryCount: 1, // Only retry once
     }
   )
 

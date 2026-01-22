@@ -502,8 +502,38 @@ export const api = {
    * Obtiene estadísticas generales del sistema
    * Usa obtenerTodosLosProductos() para evitar el límite de 1000
    */
+  /**
+   * Obtiene estadísticas generales del sistema
+   * Usa múltiples consultas si hay más de 1000 productos, pero optimizado 
+   * seleccionando solo columnas necesarias.
+   */
   async obtenerEstadisticas(): Promise<Estadisticas> {
-    const productos = await this.obtenerTodosLosProductos();
+    const BATCH_SIZE = 1000;
+    let allProducts: Partial<Producto>[] = [];
+    let offset = 0;
+    let hasMore = true;
+
+    // Fetch optimized payload (only necessary columns)
+    // Avoid fetching images, descriptions, logs, etc.
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(TABLA_PRODUCTOS)
+        .select('id, categoria, precio_menor, precio_mayor, costo, codigo_barra')
+        .range(offset, offset + BATCH_SIZE - 1);
+
+      if (error) handleSupabaseError(error);
+
+      const productos = (data as Partial<Producto>[]) || [];
+      allProducts = [...allProducts, ...productos];
+
+      if (productos.length < BATCH_SIZE) {
+        hasMore = false;
+      } else {
+        offset += BATCH_SIZE;
+      }
+    }
+
+    const productos = allProducts;
     const total = productos.length;
 
     // Productos por categoría
@@ -523,20 +553,21 @@ export const api = {
     const productos_sin_codigo_barra = productos.filter(p => !p.codigo_barra).length;
 
     // Promedios (solo productos con valores válidos)
-    const productosConPrecioMenor = productos.filter(p => p.precio_menor > 0);
-    const productosConPrecioMayor = productos.filter(p => p.precio_mayor > 0);
-    const productosConCosto = productos.filter(p => p.costo > 0);
+    // Use optional chaining or defaults as we are working with Partial<Producto>
+    const productosConPrecioMenor = productos.filter(p => (p.precio_menor || 0) > 0);
+    const productosConPrecioMayor = productos.filter(p => (p.precio_mayor || 0) > 0);
+    const productosConCosto = productos.filter(p => (p.costo || 0) > 0);
 
     const promedio_precio_menor = productosConPrecioMenor.length > 0
-      ? productosConPrecioMenor.reduce((sum, p) => sum + p.precio_menor, 0) / productosConPrecioMenor.length
+      ? productosConPrecioMenor.reduce((sum, p) => sum + (p.precio_menor || 0), 0) / productosConPrecioMenor.length
       : 0;
 
     const promedio_precio_mayor = productosConPrecioMayor.length > 0
-      ? productosConPrecioMayor.reduce((sum, p) => sum + p.precio_mayor, 0) / productosConPrecioMayor.length
+      ? productosConPrecioMayor.reduce((sum, p) => sum + (p.precio_mayor || 0), 0) / productosConPrecioMayor.length
       : 0;
 
     const promedio_costo = productosConCosto.length > 0
-      ? productosConCosto.reduce((sum, p) => sum + p.costo, 0) / productosConCosto.length
+      ? productosConCosto.reduce((sum, p) => sum + (p.costo || 0), 0) / productosConCosto.length
       : 0;
 
     return {
