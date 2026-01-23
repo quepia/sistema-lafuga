@@ -41,7 +41,9 @@
       "Bash(npm run build:*)",
       "mcp__ide__getDiagnostics",
       "Bash(npx tsc --noEmit)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

@@ -1,15 +1,16 @@
 // API Service para comunicación directa con Supabase
 // Sistema de Gestión de Precios - LA FUGA
 
-import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen } from './supabase';
+import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, CAMPOS_VISIBLES_DEFAULT } from './supabase';
 import { logProductChange } from './supabase-utils';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
 const TABLA_HISTORIAL = 'historial_productos';
+const TABLA_CATALOGOS = 'catalogos';
 
 // Re-export types for convenience
-export type { Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto };
+export type { Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo };
 
 // ==================== TIPOS DE VENTAS ====================
 
@@ -1135,6 +1136,202 @@ export const api = {
 
     if (error) handleSupabaseError(error);
     return data as Venta;
+  },
+
+  // ==================== CATALOGOS ====================
+
+  /**
+   * Creates a new catalog
+   */
+  async crearCatalogo(datos: CatalogoInsert): Promise<Catalogo> {
+    const camposVisibles = {
+      ...CAMPOS_VISIBLES_DEFAULT,
+      ...datos.campos_visibles,
+    };
+
+    const { data, error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .insert({
+        cliente_nombre: datos.cliente_nombre,
+        titulo: datos.titulo || 'Catálogo de Precios',
+        descuento_global: datos.descuento_global || 0,
+        campos_visibles: camposVisibles,
+        productos: datos.productos,
+        creado_por: datos.creado_por || null,
+      })
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Catalogo;
+  },
+
+  /**
+   * Lists catalogs with pagination
+   */
+  async listarCatalogos(params: {
+    limit?: number;
+    offset?: number;
+    incluirExpirados?: boolean;
+  } = {}): Promise<{ catalogos: Catalogo[]; total: number }> {
+    const { limit = 20, offset = 0, incluirExpirados = false } = params;
+
+    let query = supabase
+      .from(TABLA_CATALOGOS)
+      .select('*', { count: 'exact' })
+      .neq('estado', 'eliminado')
+      .order('created_at', { ascending: false });
+
+    if (!incluirExpirados) {
+      query = query.gt('expires_at', new Date().toISOString());
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, count, error } = await query;
+    if (error) handleSupabaseError(error);
+
+    return {
+      catalogos: (data as Catalogo[]) || [],
+      total: count || 0
+    };
+  },
+
+  /**
+   * Gets a catalog by its public token (for public view)
+   */
+  async obtenerCatalogoPorToken(token: string): Promise<Catalogo | null> {
+    const { data, error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .select('*')
+      .eq('public_token', token)
+      .eq('estado', 'activo')
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      handleSupabaseError(error);
+    }
+
+    return data as Catalogo;
+  },
+
+  /**
+   * Gets a catalog by ID (for editing)
+   */
+  async obtenerCatalogo(id: string): Promise<Catalogo> {
+    const { data, error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Catalogo;
+  },
+
+  /**
+   * Updates an existing catalog
+   */
+  async actualizarCatalogo(id: string, datos: Partial<CatalogoInsert>): Promise<Catalogo> {
+    const { data, error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .update(datos)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Catalogo;
+  },
+
+  /**
+   * Deletes a catalog (soft delete)
+   */
+  async eliminarCatalogo(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .update({ estado: 'eliminado' })
+      .eq('id', id);
+
+    if (error) handleSupabaseError(error);
+  },
+
+  /**
+   * Renews a catalog's link (new token + new expiration)
+   */
+  async renovarLinkCatalogo(id: string, diasValidos: number = 7): Promise<Catalogo> {
+    // Generate new token client-side
+    const newToken = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    const { data, error } = await supabase
+      .from(TABLA_CATALOGOS)
+      .update({
+        public_token: newToken,
+        expires_at: new Date(Date.now() + diasValidos * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Catalogo;
+  },
+
+  /**
+   * Gets expanded products for a catalog
+   * (Combines catalog data with current product data)
+   */
+  async obtenerProductosCatalogo(catalogo: Catalogo): Promise<ProductoCatalogo[]> {
+    const productIds = catalogo.productos.map(p => p.producto_id);
+
+    if (productIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select('*')
+      .in('id', productIds);
+
+    if (error) handleSupabaseError(error);
+
+    const productosMap = new Map((data as Producto[]).map(p => [p.id, p]));
+
+    return catalogo.productos
+      .map(cp => {
+        const producto = productosMap.get(cp.producto_id);
+        if (!producto) return null;
+
+        // Calculate final price
+        const precioBase = cp.precio_personalizado ?? producto.precio_mayor;
+        const descuentoTotal = catalogo.descuento_global + cp.descuento_individual;
+        const precioFinal = Math.round(precioBase * (1 - descuentoTotal / 100) * 100) / 100;
+
+        return {
+          ...producto,
+          descuento_individual: cp.descuento_individual,
+          precio_personalizado: cp.precio_personalizado,
+          precio_final: precioFinal,
+        } as ProductoCatalogo;
+      })
+      .filter((p): p is ProductoCatalogo => p !== null);
+  },
+
+  /**
+   * Gets multiple products by IDs (for catalog builder)
+   */
+  async obtenerProductosPorIds(ids: string[]): Promise<Producto[]> {
+    if (ids.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select('*')
+      .in('id', ids);
+
+    if (error) handleSupabaseError(error);
+    return (data as Producto[]) || [];
   },
 };
 

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode, Shield, Tag } from "lucide-react"
+import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode, Shield, Tag, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -18,6 +18,7 @@ const navItems = [
   { href: "/productos", label: "Consultar Precios", icon: Search },
   { href: "/ventas/nueva", label: "Nueva Venta", icon: ShoppingCart },
   { href: "/ventas/historial", label: "Historial Ventas", icon: FileText },
+  { href: "/catalogos", label: "Catálogo Mayorista", icon: BookOpen },
   { href: "/actualizacion-masiva", label: "Actualizar Precios", icon: DollarSign },
   { href: "/productos/escaner", label: "Asignar Codigos", icon: Barcode },
   { href: "/productos/historial", label: "Historial Productos", icon: Barcode },

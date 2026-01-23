@@ -197,3 +197,77 @@ export function calcularMargen(precio: number, costo: number): number {
 export function calcularGanancia(precio: number, costo: number): number {
   return Math.round((precio - costo) * 100) / 100;
 }
+
+// ==================== CATALOGOS (Migration 006) ====================
+
+/**
+ * Visible fields configuration for catalog
+ */
+export interface CamposVisibles {
+  foto: boolean;
+  nombre: boolean;
+  precio: boolean;
+  codigo: boolean;
+  descripcion: boolean;
+  unidad: boolean;
+}
+
+/**
+ * Product entry in a catalog with individual adjustments
+ */
+export interface CatalogoProducto {
+  producto_id: string;
+  descuento_individual: number; // Additional percentage on top of global
+  precio_personalizado: number | null; // Manual price override
+}
+
+/**
+ * Catalog as stored in the database
+ */
+export interface Catalogo {
+  id: string;
+  cliente_nombre: string;
+  titulo: string;
+  public_token: string;
+  expires_at: string;
+  descuento_global: number;
+  campos_visibles: CamposVisibles;
+  productos: CatalogoProducto[];
+  estado: 'activo' | 'expirado' | 'eliminado';
+  creado_por: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Type for inserting a new catalog
+ */
+export interface CatalogoInsert {
+  cliente_nombre: string;
+  titulo?: string;
+  descuento_global?: number;
+  campos_visibles?: Partial<CamposVisibles>;
+  productos: CatalogoProducto[];
+  creado_por?: string;
+}
+
+/**
+ * Extended product type for catalog display (with calculated final price)
+ */
+export interface ProductoCatalogo extends Producto {
+  descuento_individual: number;
+  precio_personalizado: number | null;
+  precio_final: number; // Calculated: precio_mayor * (1 - descuento_global/100) * (1 - descuento_individual/100)
+}
+
+/**
+ * Default visible fields configuration
+ */
+export const CAMPOS_VISIBLES_DEFAULT: CamposVisibles = {
+  foto: true,
+  nombre: true,
+  precio: true,
+  codigo: false,
+  descripcion: false,
+  unidad: true,
+};
