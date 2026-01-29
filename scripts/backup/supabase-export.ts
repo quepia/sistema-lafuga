@@ -1,9 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabaseClient() {
+  return createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
 export interface ProductoExport {
   id: string;
@@ -44,6 +46,8 @@ export interface ExportData {
 }
 
 export async function exportFromSupabase(): Promise<ExportData> {
+  const supabase = getSupabaseClient();
+
   const { data: productos, error: prodError } = await supabase
     .from('productos')
     .select('id, nombre, categoria, costo, precio_mayor, precio_menor, unidad, codigo_barra, descripcion, peso_neto, volumen_neto, permite_venta_fraccionada, estado, created_at, updated_at')
