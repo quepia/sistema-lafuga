@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle } from "lucide-react"
+import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -223,18 +223,34 @@ export default function DashboardView() {
           <p className="text-sm text-muted-foreground">
             Descarga un archivo Excel con todos los productos y ventas del ultimo mes.
           </p>
-          <Button
-            onClick={handleBackup}
-            disabled={backupStatus === "loading"}
-            className="gap-2 bg-[#006AC0] hover:bg-[#005299]"
-          >
-            {backupStatus === "loading" ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <HardDriveDownload className="h-4 w-4" />
-            )}
-            {backupStatus === "loading" ? "Generando backup..." : "Descargar Backup"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={handleBackup}
+              disabled={backupStatus === "loading"}
+              className="gap-2 bg-[#006AC0] hover:bg-[#005299]"
+            >
+              {backupStatus === "loading" ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <HardDriveDownload className="h-4 w-4" />
+              )}
+              {backupStatus === "loading" ? "Generando backup..." : "Descargar Backup"}
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="gap-2"
+            >
+              <a
+                href="https://drive.google.com/drive/u/2/folders/1UjW37gnqKhQ9bbljBf-99Q9nn4f9zBGi"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Abrir Google Drive
+              </a>
+            </Button>
+          </div>
 
           {backupStatus === "success" && (
             <Alert className="border-green-500/50 bg-green-50">
