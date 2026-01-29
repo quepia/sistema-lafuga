@@ -1,10 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
 function getSupabaseClient() {
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
-  );
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!url) throw new Error('SUPABASE_URL o NEXT_PUBLIC_SUPABASE_URL es requerida');
+  if (!key) throw new Error('SUPABASE_SERVICE_KEY es requerida');
+
+  return createClient(url, key);
 }
 
 export interface ProductoExport {
