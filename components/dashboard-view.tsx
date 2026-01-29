@@ -1,6 +1,7 @@
 "use client"
 
-import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown } from "lucide-react"
+import { useState } from "react"
+import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,6 +12,27 @@ import { useEstadisticas } from "@/hooks/use-estadisticas"
 
 export default function DashboardView() {
   const { estadisticas, loading, isValidating, error, refetch } = useEstadisticas()
+  const [backupStatus, setBackupStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [backupMessage, setBackupMessage] = useState("")
+
+  async function handleBackup() {
+    setBackupStatus("loading")
+    setBackupMessage("")
+    try {
+      const res = await fetch("/api/backup", { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) {
+        setBackupStatus("error")
+        setBackupMessage(data.error || "Error al ejecutar el backup")
+        return
+      }
+      setBackupStatus("success")
+      setBackupMessage(`${data.fileName} - ${data.stats.productos} productos, ${data.stats.ventas} ventas`)
+    } catch {
+      setBackupStatus("error")
+      setBackupMessage("Error de conexion al ejecutar el backup")
+    }
+  }
 
   // Only show full error state if no cached data is available
   if (error && !estadisticas) {
@@ -178,6 +200,57 @@ export default function DashboardView() {
           </CollapsibleContent>
         </Card>
       </Collapsible>
+
+      {/* Backup Manual */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm sm:text-lg">Backup a Google Drive</CardTitle>
+            <HardDriveDownload className="h-5 w-5 text-muted-foreground" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Exporta todos los productos y ventas del ultimo mes a un archivo Excel en{" "}
+            <a
+              href="https://drive.google.com/drive/u/2/folders/1UjW37gnqKhQ9bbljBf-99Q9nn4f9zBGi"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#006AC0] underline hover:text-[#005299]"
+            >
+              Google Drive
+            </a>.
+          </p>
+          <Button
+            onClick={handleBackup}
+            disabled={backupStatus === "loading"}
+            className="gap-2 bg-[#006AC0] hover:bg-[#005299]"
+          >
+            {backupStatus === "loading" ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <HardDriveDownload className="h-4 w-4" />
+            )}
+            {backupStatus === "loading" ? "Ejecutando backup..." : "Ejecutar Backup"}
+          </Button>
+
+          {backupStatus === "success" && (
+            <Alert className="border-green-500/50 bg-green-50">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <AlertTitle className="text-green-800">Backup completado</AlertTitle>
+              <AlertDescription className="text-green-700">{backupMessage}</AlertDescription>
+            </Alert>
+          )}
+
+          {backupStatus === "error" && (
+            <Alert variant="destructive">
+              <XCircle className="h-4 w-4" />
+              <AlertTitle>Error en el backup</AlertTitle>
+              <AlertDescription>{backupMessage}</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Productos por Categoría */}
       <Card>

@@ -40,3 +40,6 @@ htmlcov/
 
 # Vercel
 .vercel/
+
+# Google Service Account credentials
+sistema-la-fuga-*.json
