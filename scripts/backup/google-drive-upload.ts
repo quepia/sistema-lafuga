@@ -16,6 +16,7 @@ export async function uploadToDrive(fileBuffer: Buffer, fileName: string): Promi
   stream.push(null);
 
   const response = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: {
       name: fileName,
       parents: [process.env.GOOGLE_DRIVE_FOLDER_ID!],
