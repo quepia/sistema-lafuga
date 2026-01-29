@@ -20,14 +20,24 @@ export default function DashboardView() {
     setBackupMessage("")
     try {
       const res = await fetch("/api/backup", { method: "POST" })
-      const data = await res.json()
       if (!res.ok) {
+        const data = await res.json()
         setBackupStatus("error")
         setBackupMessage(data.error || "Error al ejecutar el backup")
         return
       }
+      const blob = await res.blob()
+      const fileName = res.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] || `backup-precios-${new Date().toISOString().split("T")[0]}.xlsx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
       setBackupStatus("success")
-      setBackupMessage(`${data.fileName} - ${data.stats.productos} productos, ${data.stats.ventas} ventas`)
+      setBackupMessage(`${fileName} descargado correctamente`)
     } catch {
       setBackupStatus("error")
       setBackupMessage("Error de conexion al ejecutar el backup")
@@ -205,21 +215,13 @@ export default function DashboardView() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm sm:text-lg">Backup a Google Drive</CardTitle>
+            <CardTitle className="text-sm sm:text-lg">Backup de Precios</CardTitle>
             <HardDriveDownload className="h-5 w-5 text-muted-foreground" />
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Exporta todos los productos y ventas del ultimo mes a un archivo Excel en{" "}
-            <a
-              href="https://drive.google.com/drive/u/2/folders/1UjW37gnqKhQ9bbljBf-99Q9nn4f9zBGi"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#006AC0] underline hover:text-[#005299]"
-            >
-              Google Drive
-            </a>.
+            Descarga un archivo Excel con todos los productos y ventas del ultimo mes.
           </p>
           <Button
             onClick={handleBackup}
@@ -231,7 +233,7 @@ export default function DashboardView() {
             ) : (
               <HardDriveDownload className="h-4 w-4" />
             )}
-            {backupStatus === "loading" ? "Ejecutando backup..." : "Ejecutar Backup"}
+            {backupStatus === "loading" ? "Generando backup..." : "Descargar Backup"}
           </Button>
 
           {backupStatus === "success" && (
