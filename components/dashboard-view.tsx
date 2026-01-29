@@ -1,19 +1,31 @@
 "use client"
 
-import { useState } from "react"
-import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle, ExternalLink } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle, ExternalLink, ShieldAlert } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import CsvUploader from "@/components/CsvUploader"
 import { useEstadisticas } from "@/hooks/use-estadisticas"
+
+function isSaturday() {
+  return new Date().getDay() === 6
+}
 
 export default function DashboardView() {
   const { estadisticas, loading, isValidating, error, refetch } = useEstadisticas()
   const [backupStatus, setBackupStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [backupMessage, setBackupMessage] = useState("")
+  const [showBackupModal, setShowBackupModal] = useState(false)
+
+  useEffect(() => {
+    if (isSaturday() && backupStatus !== "success") {
+      setShowBackupModal(true)
+    }
+  }, [])
 
   async function handleBackup() {
     setBackupStatus("loading")
@@ -73,6 +85,51 @@ export default function DashboardView() {
 
   return (
     <div className="space-y-4 sm:space-y-6 w-full max-w-full overflow-hidden">
+      {/* Saturday Backup Modal */}
+      <Dialog open={showBackupModal} onOpenChange={setShowBackupModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#FF1F8F]">
+              <ShieldAlert className="h-5 w-5" />
+              Backup semanal obligatorio
+            </DialogTitle>
+            <DialogDescription className="text-base pt-2">
+              Es sabado y es necesario realizar el backup semanal de precios. Por favor descarga el archivo y subilo a Google Drive antes de continuar.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              onClick={() => { handleBackup(); setShowBackupModal(false); }}
+              className="gap-2 bg-[#006AC0] hover:bg-[#005299]"
+            >
+              <HardDriveDownload className="h-4 w-4" />
+              Descargar Backup
+            </Button>
+            <Button asChild variant="outline" className="gap-2">
+              <a
+                href="https://drive.google.com/drive/u/2/folders/1UjW37gnqKhQ9bbljBf-99Q9nn4f9zBGi"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Abrir Google Drive
+              </a>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Saturday Backup Banner */}
+      {isSaturday() && backupStatus !== "success" && (
+        <Alert className="border-[#FF1F8F] bg-[#FF1F8F]/10">
+          <ShieldAlert className="h-4 w-4 text-[#FF1F8F]" />
+          <AlertTitle className="text-[#FF1F8F] font-bold">Backup semanal pendiente</AlertTitle>
+          <AlertDescription className="text-[#FF1F8F]/80">
+            Es sabado. Recorda descargar el backup y subirlo a Google Drive antes de terminar el dia.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Welcome Banner */}
       <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-[#006AC0] to-[#FF1F8F] p-4 sm:p-8 text-white">
         <h1 className="text-xl sm:text-3xl font-bold mb-1 sm:mb-2">Hola, Usuario</h1>

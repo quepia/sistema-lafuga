@@ -50,30 +50,48 @@ export interface ExportData {
 
 export async function exportFromSupabase(): Promise<ExportData> {
   const supabase = getSupabaseClient();
+  const PAGE_SIZE = 1000;
 
-  const { data: productos, error: prodError } = await supabase
-    .from('productos')
-    .select('id, nombre, categoria, costo, precio_mayor, precio_menor, unidad, codigo_barra, descripcion, peso_neto, volumen_neto, permite_venta_fraccionada, estado, created_at, updated_at')
-    .in('estado', ['activo', 'inactivo'])
-    .order('nombre');
+  // Paginar productos (Supabase limita a 1000 por query)
+  const allProductos: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data: batch, error: prodError } = await supabase
+      .from('productos')
+      .select('id, nombre, categoria, costo, precio_mayor, precio_menor, unidad, codigo_barra, descripcion, peso_neto, volumen_neto, permite_venta_fraccionada, estado, created_at, updated_at')
+      .in('estado', ['activo', 'inactivo'])
+      .order('nombre')
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (prodError) throw new Error(`Error exportando productos: ${prodError.message}`);
+    if (prodError) throw new Error(`Error exportando productos: ${prodError.message}`);
+    allProductos.push(...(batch || []));
+    if (!batch || batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
 
-  // Exportar ventas del último mes
+  // Paginar ventas del ultimo mes
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-  const { data: ventas, error: ventasError } = await supabase
-    .from('ventas')
-    .select('id, created_at, tipo_venta, total, metodo_pago, cliente_nombre, productos, subtotal, descuento_global, descuento_global_porcentaje, descuento_global_motivo')
-    .gte('created_at', oneMonthAgo.toISOString())
-    .order('created_at', { ascending: false });
+  const allVentas: any[] = [];
+  from = 0;
+  while (true) {
+    const { data: batch, error: ventasError } = await supabase
+      .from('ventas')
+      .select('id, created_at, tipo_venta, total, metodo_pago, cliente_nombre, productos, subtotal, descuento_global, descuento_global_porcentaje, descuento_global_motivo')
+      .gte('created_at', oneMonthAgo.toISOString())
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (ventasError) throw new Error(`Error exportando ventas: ${ventasError.message}`);
+    if (ventasError) throw new Error(`Error exportando ventas: ${ventasError.message}`);
+    allVentas.push(...(batch || []));
+    if (!batch || batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
 
   return {
-    productos: productos || [],
-    ventas: ventas || [],
+    productos: allProductos,
+    ventas: allVentas,
     exportDate: new Date().toISOString(),
   };
 }
