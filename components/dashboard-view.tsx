@@ -220,9 +220,10 @@ export default function DashboardView() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Descarga un archivo Excel con todos los productos y ventas del ultimo mes.
-          </p>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Descarga un archivo Excel con todos los productos y ventas del ultimo mes.</p>
+            <p className="font-medium text-foreground">Pasos: 1. Descargar backup → 2. Subir el archivo a Google Drive para no perderlo.</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={handleBackup}
