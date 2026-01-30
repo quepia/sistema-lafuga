@@ -3,135 +3,9 @@
  * Uses html2pdf.js for client-side PDF generation
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-// Dynamic import to avoid SSR issues
-let html2pdfModule: any = null;
-
-async function getHtml2pdf(): Promise<any> {
-  if (!html2pdfModule) {
-    const module = await import('html2pdf.js');
-    html2pdfModule = module.default || module;
-  }
-  return html2pdfModule;
-}
-
-export interface PDFOptions {
-  margin?: number;
-  filename?: string;
-  imageQuality?: number;
-  scale?: number;
-  orientation?: 'portrait' | 'landscape';
-}
-
 /**
- * Generates and downloads a PDF from an HTML element
- * @param elementId - ID of the HTML element to convert
- * @param options - PDF generation options
+ * PDF Generation Utilities
  */
-export async function generarPDF(
-  elementId: string,
-  options: PDFOptions = {}
-): Promise<void> {
-  const element = document.getElementById(elementId);
-  if (!element) {
-    throw new Error(`Elemento con ID "${elementId}" no encontrado`);
-  }
-
-  const {
-    margin = 10,
-    filename = 'catalogo.pdf',
-    imageQuality = 0.95,
-    scale = 2,
-    orientation = 'portrait',
-  } = options;
-
-  const html2pdf = await getHtml2pdf();
-
-  const opt = {
-    margin,
-    filename,
-    image: { type: 'jpeg', quality: imageQuality },
-    html2canvas: {
-      scale,
-      useCORS: true, // For external images
-      logging: false,
-      allowTaint: true,
-    },
-    jsPDF: {
-      unit: 'mm',
-      format: 'a4',
-      orientation,
-    },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-  };
-
-  await html2pdf().set(opt).from(element).save();
-}
-
-/**
- * Generates a PDF and returns it as a Blob
- * @param elementId - ID of the HTML element to convert
- * @param options - PDF generation options
- */
-export async function generarPDFBlob(
-  elementId: string,
-  options: PDFOptions = {}
-): Promise<Blob> {
-  const element = document.getElementById(elementId);
-  if (!element) {
-    throw new Error(`Elemento con ID "${elementId}" no encontrado`);
-  }
-
-  const {
-    margin = 10,
-    imageQuality = 0.95,
-    scale = 2,
-    orientation = 'portrait',
-  } = options;
-
-  const html2pdf = await getHtml2pdf();
-
-  const opt = {
-    margin,
-    image: { type: 'jpeg', quality: imageQuality },
-    html2canvas: {
-      scale,
-      useCORS: true,
-      logging: false,
-      allowTaint: true,
-    },
-    jsPDF: {
-      unit: 'mm',
-      format: 'a4',
-      orientation,
-    },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-  };
-
-  const blob = await html2pdf().set(opt).from(element).outputPdf('blob');
-  return blob;
-}
-
-/**
- * Generates a catalog-specific PDF with optimized settings
- * @param elementId - ID of the catalog element
- * @param clienteNombre - Client name for filename
- */
-export async function generarCatalogoPDF(
-  elementId: string,
-  clienteNombre: string
-): Promise<void> {
-  const filename = `Catalogo_${clienteNombre.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
-
-  await generarPDF(elementId, {
-    filename,
-    margin: 10,
-    imageQuality: 0.9,
-    scale: 2,
-    orientation: 'portrait',
-  });
-}
 
 /**
  * Formats a price for display
@@ -159,4 +33,49 @@ export function calcularPrecioFinal(
 ): number {
   const totalDescuento = descuentoGlobal + descuentoIndividual;
   return Math.round(precioBase * (1 - totalDescuento / 100) * 100) / 100;
+}
+// ... existing code ...
+
+/**
+ * Converts an image URL to a Base64 string
+ * @param url - The image URL
+ */
+export async function urlToBase64(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const blob = await response.blob();
+
+    // If it's an SVG, convert to PNG
+    if (blob.type === 'image/svg+xml' || url.endsWith('.svg')) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          // Scale up for better quality
+          canvas.width = img.width * 2;
+          canvas.height = img.height * 2;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+      });
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("Error converting image to base64:", url, error);
+    return null;
+  }
 }

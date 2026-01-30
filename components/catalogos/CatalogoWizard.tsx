@@ -13,8 +13,7 @@ import { Slider } from "@/components/ui/slider"
 import { toast } from "sonner"
 import { CatalogoProductCard } from "./CatalogoProductCard"
 import { CatalogoPreview } from "./CatalogoPreview"
-import { CatalogoPDFView } from "./CatalogoPDFView"
-import { generarCatalogoPDF } from "@/lib/pdf-utils"
+import { CatalogoPrintTemplate } from "./CatalogoPrintTemplate"
 import { CamposVisibles } from "@/lib/supabase"
 import {
   ArrowLeft,
@@ -26,6 +25,7 @@ import {
   Copy,
   Loader2,
   X,
+  MessageCircle,
 } from "lucide-react"
 
 // Step indicator
@@ -85,6 +85,8 @@ export function CatalogoWizard() {
   // Loading states
   const [isCreating, setIsCreating] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [pdfLogo, setPdfLogo] = useState<string>("/LogoLaFuga.svg");
+  const [pdfImages, setPdfImages] = useState<Record<string, string>>({});
 
   // Created catalog state
   const [createdCatalogo, setCreatedCatalogo] = useState<{
@@ -173,12 +175,58 @@ export function CatalogoWizard() {
     }
   };
 
-  /* eslint-disable @typescript-eslint/no-unused-vars */
   const handleGeneratePDF = async () => {
     setIsGeneratingPDF(true);
     try {
-      // Use the hidden PDF view ID
-      await generarCatalogoPDF("catalogo-pdf-hidden", builder.state.clienteNombre);
+      // Preload logo to Base64 to ensure it renders in PDF
+      // @ts-ignore - Importing from lib/pdf-utils
+      const { urlToBase64 } = await import("@/lib/pdf-utils");
+      const logoBase64 = await urlToBase64("/LogoLaFuga.svg");
+
+      const element = document.getElementById('catalogo-print-template');
+      if (!element) {
+        toast.error("No se pudo encontrar el contenido para generar el PDF");
+        return;
+      }
+
+      // Update the logo src in the template momentarily
+      // We can't easily pass props to the already rendered component dynamically in this flow 
+      // without triggering a re-render. 
+      // Instead, let's find the img tag and update it manually or use a state in the wizard to pass down.
+      // Better: Store logoBase64 in state.
+
+      // Actually, passing it via prop is cleaner, but requires a re-render.
+      // Let's modify the component state to include logoBase64.
+      setPdfLogo(logoBase64 || "/LogoLaFuga.svg");
+
+      // Preload all product images
+      const productImages: Record<string, string> = {};
+      const imagePromises = selectedProductosData.map(async (p) => {
+        if (p.image_url) {
+          const b64 = await urlToBase64(p.image_url);
+          if (b64) productImages[p.id] = b64;
+        }
+      });
+      await Promise.all(imagePromises);
+      setPdfImages(productImages);
+
+      // Give React a moment to update the DOM with the new images
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Dynamic import to avoid SSR issues
+      // @ts-ignore
+      const html2pdf = (await import("html2pdf.js")).default;
+
+      const opt = {
+        margin: 0,
+        filename: `Catalogo_${builder.state.clienteNombre.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().from(element).set(opt).save();
+
       toast.success("PDF generado correctamente");
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -196,6 +244,35 @@ export function CatalogoWizard() {
     }
   };
 
+  const handleCopyWhatsApp = async () => {
+    try {
+      let message = `Hola! 👋 ¿Cómo va todo?\n\nTe hablamos desde *La Fuga* Artículos de limpieza.\n\nTe comparto nuestro catálogo actualizado con precios especiales de "fuga" 💸.\n\n`;
+
+      if (createdCatalogo) {
+        message += `${window.location.origin}/catalogo/${createdCatalogo.publicToken}\n\n`;
+      }
+
+      message += `*Productos seleccionados:*\n`;
+
+      selectedProductosData.forEach((producto) => {
+        const config = builder.getProductoConfig(producto.id);
+        const descuentoIndividual = config?.descuento_individual ?? 0;
+        const totalDescuento = builder.state.descuentoGlobal + descuentoIndividual;
+        const precioFinal = Math.round(producto.precio_mayor * (1 - totalDescuento / 100) * 100) / 100;
+
+        message += `• ${producto.nombre}: $${precioFinal.toLocaleString()}\n`;
+      });
+
+      message += `\nEstamos a disposición para lo que necesites. 🏠✨`;
+
+      await navigator.clipboard.writeText(message);
+      toast.success("Mensaje copiado al portapapeles");
+    } catch (error) {
+      console.error("Error creating WhatsApp message:", error);
+      toast.error("Error al copiar el mensaje");
+    }
+  };
+
   const campoLabels: Record<keyof CamposVisibles, string> = {
     foto: "Foto del producto",
     nombre: "Nombre",
@@ -207,6 +284,23 @@ export function CatalogoWizard() {
 
   return (
     <div className="max-w-5xl mx-auto">
+      {/* Hidden Print Template */}
+      <div style={{ position: 'fixed', top: '-10000px', left: 0, visibility: 'hidden' }}>
+        <CatalogoPrintTemplate
+          id="catalogo-print-template"
+          titulo={builder.state.titulo}
+          clienteNombre={builder.state.clienteNombre}
+          productos={selectedProductosData}
+          camposVisibles={builder.state.camposVisibles}
+          descuentoGlobal={builder.state.descuentoGlobal}
+          getDescuentoIndividual={(id) => builder.getProductoConfig(id)?.descuento_individual ?? 0}
+          getPrecioPersonalizado={(id) => builder.getProductoConfig(id)?.precio_personalizado ?? null}
+          // @ts-ignore
+          logoSrc={pdfLogo}
+          productImages={pdfImages}
+        />
+      </div>
+
       {/* Step Indicator */}
       <StepIndicator currentStep={builder.state.step} />
 
@@ -227,6 +321,7 @@ export function CatalogoWizard() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
                 type="text"
+                autoComplete="off"
                 placeholder="Buscar productos por nombre o código..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -329,6 +424,7 @@ export function CatalogoWizard() {
                       <div className="flex items-center gap-2">
                         <Input
                           type="number"
+                          autoComplete="off"
                           value={descuentoIndividual}
                           onChange={(e) =>
                             builder.setDescuentoIndividual(producto.id, Number(e.target.value))
@@ -408,6 +504,7 @@ export function CatalogoWizard() {
                 <Label htmlFor="clienteNombre">Nombre del Cliente *</Label>
                 <Input
                   id="clienteNombre"
+                  autoComplete="off"
                   value={builder.state.clienteNombre}
                   onChange={(e) => builder.setClienteNombre(e.target.value)}
                   placeholder="Ej: Juan Pérez"
@@ -417,6 +514,7 @@ export function CatalogoWizard() {
                 <Label htmlFor="titulo">Título del Catálogo</Label>
                 <Input
                   id="titulo"
+                  autoComplete="off"
                   value={builder.state.titulo}
                   onChange={(e) => builder.setTitulo(e.target.value)}
                   placeholder="Catálogo de Precios"
@@ -427,20 +525,6 @@ export function CatalogoWizard() {
             {/* Preview */}
             <div className="border rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
               <CatalogoPreview
-                titulo={builder.state.titulo}
-                clienteNombre={builder.state.clienteNombre || "Cliente"}
-                productos={selectedProductosData}
-                camposVisibles={builder.state.camposVisibles}
-                descuentoGlobal={builder.state.descuentoGlobal}
-                getDescuentoIndividual={(id) => builder.getProductoConfig(id)?.descuento_individual ?? 0}
-                getPrecioPersonalizado={(id) => builder.getProductoConfig(id)?.precio_personalizado ?? null}
-              />
-            </div>
-
-            {/* Hidden PDF View */}
-            <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
-              <CatalogoPDFView
-                id="catalogo-pdf-hidden"
                 titulo={builder.state.titulo}
                 clienteNombre={builder.state.clienteNombre || "Cliente"}
                 productos={selectedProductosData}
@@ -480,6 +564,14 @@ export function CatalogoWizard() {
                     )}
                     Generar Link Temporal
                   </Button>
+                  <Button
+                    onClick={handleCopyWhatsApp}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Copiar WhatsApp
+                  </Button>
                 </>
               ) : (
                 <div className="flex-1 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -499,6 +591,14 @@ export function CatalogoWizard() {
                   <p className="text-xs text-green-600 mt-2">
                     El link expira en 7 días
                   </p>
+                  <Button
+                    onClick={handleCopyWhatsApp}
+                    variant="outline"
+                    className="w-full mt-3 bg-white text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Copiar Mensaje Completo
+                  </Button>
                 </div>
               )}
             </div>

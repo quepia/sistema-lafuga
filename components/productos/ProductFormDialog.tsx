@@ -61,7 +61,20 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
         peso_neto: null,
         volumen_neto: null,
         permite_venta_fraccionada: false,
-        unidad: "u"
+        unidad: "u",
+        // Stock fields
+        stock_actual: 0,
+        stock_minimo: 0,
+        stock_maximo: null,
+        stock_reservado: 0,
+        permite_stock_negativo: true,
+        unidad_stock: "unidad",
+        unidad_compra: "unidad",
+        factor_conversion: 1,
+        merma_esperada: 0,
+        ubicacion_deposito: null,
+        controla_vencimiento: false,
+        es_combo: false,
     })
 
     // String states for price inputs to allow proper deletion
@@ -94,6 +107,18 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                     volumen_neto: productoEditar.volumen_neto,
                     permite_venta_fraccionada: productoEditar.permite_venta_fraccionada || false,
                     unidad: productoEditar.unidad || "u",
+                    // Stock fields
+                    stock_actual: productoEditar.stock_actual ?? 0,
+                    stock_minimo: productoEditar.stock_minimo ?? 0,
+                    stock_maximo: productoEditar.stock_maximo ?? null,
+                    permite_stock_negativo: productoEditar.permite_stock_negativo !== false,
+                    unidad_stock: productoEditar.unidad_stock || "unidad",
+                    unidad_compra: productoEditar.unidad_compra || "unidad",
+                    factor_conversion: productoEditar.factor_conversion ?? 1,
+                    merma_esperada: productoEditar.merma_esperada ?? 0,
+                    ubicacion_deposito: productoEditar.ubicacion_deposito || null,
+                    controla_vencimiento: productoEditar.controla_vencimiento || false,
+                    es_combo: productoEditar.es_combo || false,
                 })
                 // Initialize string states for prices
                 setPrecioMenorStr(productoEditar.precio_menor?.toString() || "")
@@ -112,7 +137,20 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                     peso_neto: null,
                     volumen_neto: null,
                     permite_venta_fraccionada: false,
-                    unidad: "u"
+                    unidad: "u",
+                    // Stock fields
+                    stock_actual: 0,
+                    stock_minimo: 0,
+                    stock_maximo: null,
+                    stock_reservado: 0,
+                    permite_stock_negativo: true,
+                    unidad_stock: "unidad",
+                    unidad_compra: "unidad",
+                    factor_conversion: 1,
+                    merma_esperada: 0,
+                    ubicacion_deposito: null,
+                    controla_vencimiento: false,
+                    es_combo: false,
                 })
                 // Reset string states for prices
                 setPrecioMenorStr("")
@@ -192,6 +230,18 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                 volumen_neto: formData.volumen_neto ? Number(formData.volumen_neto) : null,
                 permite_venta_fraccionada: formData.permite_venta_fraccionada,
                 unidad: formData.unidad,
+                // Stock fields
+                stock_actual: formData.stock_actual ?? 0,
+                stock_minimo: formData.stock_minimo ?? 0,
+                stock_maximo: formData.stock_maximo ?? null,
+                permite_stock_negativo: formData.permite_stock_negativo !== false,
+                unidad_stock: formData.unidad_stock || "unidad",
+                unidad_compra: formData.unidad_compra || "unidad",
+                factor_conversion: formData.factor_conversion ?? 1,
+                merma_esperada: formData.merma_esperada ?? 0,
+                ubicacion_deposito: formData.ubicacion_deposito || null,
+                controla_vencimiento: formData.controla_vencimiento || false,
+                es_combo: formData.es_combo || false,
             }
 
             if (isEditing) {
@@ -412,6 +462,147 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                             </div>
                         </div>
 
+                        {/* Stock & Inventory Section */}
+                        <div className="border-t pt-4">
+                            <h4 className="text-sm font-medium mb-4">Inventario y Stock</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="stock_actual">Stock Actual</Label>
+                                    <Input
+                                        id="stock_actual"
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.stock_actual ?? 0}
+                                        onChange={(e) => handleInputChange("stock_actual", parseFloat(e.target.value) || 0)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="stock_minimo">Stock Mínimo</Label>
+                                    <Input
+                                        id="stock_minimo"
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.stock_minimo ?? 0}
+                                        onChange={(e) => handleInputChange("stock_minimo", parseFloat(e.target.value) || 0)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="stock_maximo">Stock Máximo</Label>
+                                    <Input
+                                        id="stock_maximo"
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.stock_maximo ?? ""}
+                                        onChange={(e) => handleInputChange("stock_maximo", e.target.value ? parseFloat(e.target.value) : null)}
+                                        placeholder="Opcional"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="unidad_stock">Unidad de Stock</Label>
+                                    <Select
+                                        value={formData.unidad_stock || "unidad"}
+                                        onValueChange={(v) => handleInputChange("unidad_stock", v)}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="unidad">Unidad</SelectItem>
+                                            <SelectItem value="kg">Kilogramo</SelectItem>
+                                            <SelectItem value="litro">Litro</SelectItem>
+                                            <SelectItem value="metro">Metro</SelectItem>
+                                            <SelectItem value="caja">Caja</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="unidad_compra">Unidad de Compra</Label>
+                                    <Select
+                                        value={formData.unidad_compra || "unidad"}
+                                        onValueChange={(v) => handleInputChange("unidad_compra", v)}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="unidad">Unidad</SelectItem>
+                                            <SelectItem value="bulto">Bulto</SelectItem>
+                                            <SelectItem value="caja">Caja</SelectItem>
+                                            <SelectItem value="pack">Pack</SelectItem>
+                                            <SelectItem value="kg">Kilogramo</SelectItem>
+                                            <SelectItem value="litro">Litro</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="factor_conversion" className="flex items-center gap-1">
+                                        Factor de Conversión
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                                                <TooltipContent>Cuántas unidades de stock trae una unidad de compra</TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </Label>
+                                    <Input
+                                        id="factor_conversion"
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        value={formData.factor_conversion ?? 1}
+                                        onChange={(e) => handleInputChange("factor_conversion", parseFloat(e.target.value) || 1)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="ubicacion_deposito">Ubicación en Depósito</Label>
+                                    <Input
+                                        id="ubicacion_deposito"
+                                        value={formData.ubicacion_deposito || ""}
+                                        onChange={(e) => handleInputChange("ubicacion_deposito", e.target.value || null)}
+                                        placeholder="Ej: Estante A3"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="merma_esperada">Merma Esperada (%)</Label>
+                                    <Input
+                                        id="merma_esperada"
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        max="100"
+                                        value={formData.merma_esperada ?? 0}
+                                        onChange={(e) => handleInputChange("merma_esperada", parseFloat(e.target.value) || 0)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3 mt-4">
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="permite_stock_negativo"
+                                        checked={formData.permite_stock_negativo !== false}
+                                        onCheckedChange={(c) => handleInputChange("permite_stock_negativo", c === true)}
+                                    />
+                                    <Label htmlFor="permite_stock_negativo">Permitir stock negativo</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="controla_vencimiento"
+                                        checked={formData.controla_vencimiento === true}
+                                        onCheckedChange={(c) => handleInputChange("controla_vencimiento", c === true)}
+                                    />
+                                    <Label htmlFor="controla_vencimiento">Controla fecha de vencimiento</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="es_combo"
+                                        checked={formData.es_combo === true}
+                                        onCheckedChange={(c) => handleInputChange("es_combo", c === true)}
+                                    />
+                                    <Label htmlFor="es_combo">Es producto combo/kit</Label>
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="border-t pt-4">
                             <h4 className="text-sm font-medium mb-4">Detalles Adicionales</h4>
                             <div className="space-y-4">
@@ -500,6 +691,9 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                                 <div className="rounded-lg border p-3 bg-muted/50 space-y-1">
                                     <p className="font-medium text-foreground">{formData.nombre}</p>
                                     <p className="text-sm">Código: <span className="font-mono">{formData.id}</span></p>
+                                    {(formData.stock_actual ?? 0) > 0 && (
+                                        <p className="text-sm text-green-700 font-medium">Stock Inicial: {formData.stock_actual}</p>
+                                    )}
                                     <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
                                         <div>
                                             <span className="text-muted-foreground">Menor:</span>{" "}

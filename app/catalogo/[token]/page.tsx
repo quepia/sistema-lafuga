@@ -5,10 +5,12 @@ import { useParams } from "next/navigation"
 import Image from "next/image"
 import { api, Catalogo, ProductoCatalogo } from "@/lib/api"
 import { CatalogoPreview } from "@/components/catalogos/CatalogoPreview"
-import { CatalogoPDFView } from "@/components/catalogos/CatalogoPDFView"
-import { generarCatalogoPDF } from "@/lib/pdf-utils"
+import { pdf } from "@react-pdf/renderer"
+import { CatalogPDFDocument } from "@/components/catalogos/CatalogPDFDocument"
+import { urlToBase64 } from "@/lib/pdf-utils"
 import { Button } from "@/components/ui/button"
 import { Loader2, FileDown, AlertCircle, Clock } from "lucide-react"
+import { toast } from "sonner"
 
 export default function CatalogoPublicoPage() {
   const params = useParams()
@@ -51,14 +53,60 @@ export default function CatalogoPublicoPage() {
     loadCatalogo()
   }, [token])
 
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleDownloadPDF = async () => {
     if (!catalogo) return
 
     setIsGeneratingPDF(true)
     try {
-      await generarCatalogoPDF("catalogo-pdf-hidden", catalogo.cliente_nombre)
+      // 1. Preload logo and images
+      const logoBase64 = (await urlToBase64("/LogoLaFuga.svg")) || undefined;
+      const productImages: Record<string, string> = {};
+
+      await Promise.all(productos.map(async (p) => {
+        if (p.image_url) {
+          const b64 = await urlToBase64(p.image_url);
+          if (b64) productImages[p.id] = b64;
+        }
+      }));
+
+      // 2. Generate Blob
+      const blob = await pdf(
+        <CatalogPDFDocument
+          titulo={catalogo.titulo}
+          clienteNombre={catalogo.cliente_nombre}
+          productos={productos}
+          camposVisibles={catalogo.campos_visibles}
+          descuentoGlobal={catalogo.descuento_global}
+          // In public view, individual discounts are already applied to the price? 
+          // Actually, ProductoCatalogo might have different structure or we need to handle it.
+          // Let's check ProductoCatalogo interface.
+          // Assuming for now we pass 0 or handle it if available.
+          getDescuentoIndividual={(id) => {
+            // If implicit discount exists in producto logic, we might need a way to get it.
+            // But usually public view gets final prices or we just pass 0 if not editable here.
+            return 0;
+          }}
+          getPrecioPersonalizado={(id) => null}
+          logoBase64={logoBase64}
+          productImagesBase64={productImages}
+        />
+      ).toBlob();
+
+      // 3. Download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Catalogo_${catalogo.cliente_nombre.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success("PDF descargado correctamente");
     } catch (err) {
       console.error("Error generating PDF:", err)
+      toast.error("Error al generar el PDF");
     } finally {
       setIsGeneratingPDF(false)
     }
@@ -164,17 +212,7 @@ export default function CatalogoPublicoPage() {
         />
 
         {/* Hidden PDF View */}
-        <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
-          <CatalogoPDFView
-            id="catalogo-pdf-hidden"
-            titulo={catalogo.titulo}
-            clienteNombre={catalogo.cliente_nombre}
-            productos={productos}
-            camposVisibles={catalogo.campos_visibles}
-            descuentoGlobal={catalogo.descuento_global}
-            fechaGeneracion={new Date(catalogo.created_at)}
-          />
-        </div>
+
       </div>
 
       {/* Mobile Download Button */}

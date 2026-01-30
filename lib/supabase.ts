@@ -81,6 +81,22 @@ export interface Producto {
   image_url?: string | null;        // URL of product image
   image_source?: 'openfoodfacts' | 'google' | 'manual' | 'not_found' | null;
   image_fetched_at?: string | null; // When image was fetched/updated
+
+  // NEW FIELDS (Migration 010) - Stock & Inventory
+  stock_actual?: number;
+  stock_minimo?: number;
+  stock_maximo?: number | null;
+  stock_reservado?: number;
+  punto_pedido?: number | null;
+  permite_stock_negativo?: boolean;
+  unidad_stock?: string;
+  unidad_compra?: string;
+  factor_conversion?: number;
+  merma_esperada?: number;
+  ubicacion_deposito?: string | null;
+  controla_vencimiento?: boolean;
+  proveedor_predeterminado_id?: string | null;
+  es_combo?: boolean;
 }
 
 /**
@@ -154,6 +170,22 @@ export interface ProductoInsert {
   permite_venta_fraccionada?: boolean;
   estado?: 'activo' | 'inactivo' | 'eliminado';
   motivo_eliminacion?: string | null;
+
+  // Stock fields (Migration 010)
+  stock_actual?: number;
+  stock_minimo?: number;
+  stock_maximo?: number | null;
+  stock_reservado?: number;
+  punto_pedido?: number | null;
+  permite_stock_negativo?: boolean;
+  unidad_stock?: string;
+  unidad_compra?: string;
+  factor_conversion?: number;
+  merma_esperada?: number;
+  ubicacion_deposito?: string | null;
+  controla_vencimiento?: boolean;
+  proveedor_predeterminado_id?: string | null;
+  es_combo?: boolean;
 }
 
 /**
@@ -175,6 +207,22 @@ export interface ProductoUpdate {
   permite_venta_fraccionada?: boolean;
   estado?: 'activo' | 'inactivo' | 'eliminado';
   motivo_eliminacion?: string | null;
+
+  // Stock fields (Migration 010)
+  stock_actual?: number;
+  stock_minimo?: number;
+  stock_maximo?: number | null;
+  stock_reservado?: number;
+  punto_pedido?: number | null;
+  permite_stock_negativo?: boolean;
+  unidad_stock?: string;
+  unidad_compra?: string;
+  factor_conversion?: number;
+  merma_esperada?: number;
+  ubicacion_deposito?: string | null;
+  controla_vencimiento?: boolean;
+  proveedor_predeterminado_id?: string | null;
+  es_combo?: boolean;
 }
 
 /**
@@ -271,3 +319,193 @@ export const CAMPOS_VISIBLES_DEFAULT: CamposVisibles = {
   descripcion: false,
   unidad: true,
 };
+
+// ==================== INVENTARIO Y STOCK (Migration 007+) ====================
+
+export type TipoMovimiento =
+  | 'VENTA' | 'COMPRA' | 'AJUSTE_MANUAL' | 'MERMA' | 'ROTURA'
+  | 'VENCIMIENTO' | 'DEVOLUCION_CLIENTE' | 'DEVOLUCION_PROVEEDOR'
+  | 'INVENTARIO_INICIAL' | 'TRANSFERENCIA_ENTRADA'
+  | 'TRANSFERENCIA_SALIDA' | 'CONSUMO_INTERNO';
+
+export interface MovimientoStock {
+  id: string;
+  created_at: string;
+  producto_id: string;
+  tipo_movimiento: TipoMovimiento;
+  cantidad: number;
+  stock_previo: number;
+  stock_resultante: number;
+  costo_unitario: number;
+  costo_total: number;
+  usuario_id: string | null;
+  referencia_id: string | null;
+  referencia_tipo: 'VENTA' | 'COMPRA' | 'AJUSTE' | 'TRANSFERENCIA' | null;
+  motivo: string | null;
+  lote: string | null;
+  fecha_vencimiento: string | null;
+  // Joined fields (optional, from queries with joins)
+  producto_nombre?: string;
+}
+
+export type TipoAjuste = 'AJUSTE_MANUAL' | 'MERMA' | 'ROTURA' | 'VENCIMIENTO' | 'CONSUMO_INTERNO';
+
+export interface AjusteStockInput {
+  producto_id: string;
+  cantidad_real: number;
+  tipo_ajuste: TipoAjuste;
+  motivo: string;
+  usuario_id?: string;
+}
+
+export interface OrdenCompra {
+  id: string;
+  proveedor_id: string;
+  numero_orden: string | null;
+  fecha_orden: string;
+  fecha_entrega_esperada: string | null;
+  estado: 'BORRADOR' | 'PENDIENTE' | 'APROBADA' | 'ENVIADA' | 'PARCIAL' | 'COMPLETA' | 'CANCELADA';
+  subtotal: number;
+  iva: number;
+  total: number;
+  observaciones: string | null;
+  created_at: string;
+}
+
+export interface AlertaStock {
+  producto_id: string;
+  nombre: string;
+  stock_actual: number;
+  stock_minimo: number;
+  nivel: 'critico' | 'precaucion';
+}
+
+// ==================== COMPRAS (Migration 008) ====================
+
+export type TipoDocumentoCompra = 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'REMITO' | 'NOTA_CREDITO';
+export type EstadoCompra = 'PENDIENTE' | 'RECIBIDA' | 'PARCIAL' | 'CANCELADA';
+
+export interface Compra {
+  id: string;
+  proveedor_id: string;
+  fecha: string;
+  numero_factura: string | null;
+  tipo_documento: TipoDocumentoCompra;
+  cae: string | null;
+  subtotal: number;
+  iva: number;
+  total: number;
+  estado: EstadoCompra;
+  notas: string | null;
+  usuario_id: string | null;
+  created_at: string;
+  // Joined fields (optional)
+  proveedor_nombre?: string;
+}
+
+export interface CompraDetalle {
+  id: string;
+  compra_id: string;
+  producto_id: string;
+  cantidad: number;
+  cantidad_recibida: number;
+  costo_unitario: number;
+  costo_total: number;
+  fecha_vencimiento: string | null;
+  lote: string | null;
+  // Joined fields (optional)
+  producto_nombre?: string;
+}
+
+export interface CompraInsert {
+  proveedor_id: string;
+  fecha?: string;
+  numero_factura?: string;
+  tipo_documento?: TipoDocumentoCompra;
+  cae?: string;
+  notas?: string;
+  usuario_id?: string;
+  items: CompraDetalleInsert[];
+}
+
+export interface CompraDetalleInsert {
+  producto_id: string;
+  cantidad: number;
+  costo_unitario: number;
+  fecha_vencimiento?: string;
+  lote?: string;
+}
+
+export interface CompraConDetalle extends Compra {
+  detalle: CompraDetalle[];
+}
+
+// ==================== COMBOS/KITS (Migration 011) ====================
+
+export interface ComposicionCombo {
+  id: string;
+  producto_padre_id: string;
+  producto_hijo_id: string;
+  cantidad: number;
+  // Joined fields
+  producto_hijo_nombre?: string;
+}
+
+export interface ComposicionComboInsert {
+  producto_padre_id: string;
+  producto_hijo_id: string;
+  cantidad: number;
+}
+
+// ==================== CONFIGURACIÓN SISTEMA (Migration 012) ====================
+
+export type MetodoCosteo = 'PROMEDIO_PONDERADO' | 'ULTIMO_COSTO' | 'FIFO';
+
+export interface ConfiguracionSistema {
+  clave: string;
+  valor: string;
+  descripcion: string | null;
+  updated_at: string;
+}
+
+
+// ==================== PROVEEDORES (Migration 007) ====================
+
+export interface Proveedor {
+  id: string;
+  nombre: string;
+  cuit: string | null;
+  contacto: string | null;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  condicion_pago: string | null;
+  notas: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProveedorInsert {
+  nombre: string;
+  cuit?: string | null;
+  contacto?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  direccion?: string | null;
+  condicion_pago?: string | null;
+  notas?: string | null;
+}
+
+export interface ProveedorUpdate {
+  nombre?: string;
+  cuit?: string | null;
+  contacto?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  direccion?: string | null;
+  condicion_pago?: string | null;
+  notas?: string | null;
+  activo?: boolean;
+}
+

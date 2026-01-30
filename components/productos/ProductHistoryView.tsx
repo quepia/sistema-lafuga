@@ -110,6 +110,7 @@ export default function ProductHistoryView() {
                 <div className="flex w-full max-w-sm items-center space-x-2">
                     <Input
                         placeholder="Buscar por ID de producto..."
+                        autoComplete="off"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSearch()}

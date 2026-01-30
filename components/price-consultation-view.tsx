@@ -28,6 +28,16 @@ import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 import { ProductImage } from "@/components/productos/ProductImage"
 import { api, ApiError } from "@/lib/api"
 
+
+function getStockStatus(producto: Producto): { label: string; color: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } | null {
+  const stock = producto.stock_actual;
+  const minimo = producto.stock_minimo;
+  if (stock === undefined || stock === null) return null;
+  if (stock <= 0) return { label: 'Sin stock', color: '', variant: 'destructive' };
+  if (minimo && stock <= minimo) return { label: 'Stock bajo', color: 'text-orange-600 bg-orange-50', variant: 'outline' };
+  return { label: `Stock: ${stock}`, color: 'text-green-600 bg-green-50', variant: 'outline' };
+}
+
 const ITEMS_PER_PAGE = 20
 
 export default function PriceConsultationView() {
@@ -258,6 +268,12 @@ export default function PriceConsultationView() {
                     <Badge variant="outline" className="mb-1 sm:mb-2 font-mono text-[10px] sm:text-xs">
                       {producto.id}
                     </Badge>
+                    {producto.es_combo && <Badge variant="outline" className="ml-2 mb-1 sm:mb-2 text-[10px] sm:text-xs bg-purple-50 text-purple-700 border-purple-200">COMBO</Badge>}
+                    {(() => {
+                      const stockStatus = getStockStatus(producto);
+                      if (!stockStatus) return null;
+                      return <Badge variant={stockStatus.variant} className={`ml-2 mb-1 sm:mb-2 text-[10px] sm:text-xs ${stockStatus.color}`}>{stockStatus.label}</Badge>;
+                    })()}
                     {producto.estado === 'eliminado' && (
                       <Badge variant="destructive" className="ml-2 mb-1 sm:mb-2 text-[10px] sm:text-xs">
                         ELIMINADO

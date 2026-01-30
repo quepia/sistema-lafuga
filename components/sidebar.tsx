@@ -3,7 +3,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode, Shield, Tag, BookOpen } from "lucide-react"
+import { Search, LayoutDashboard, DollarSign, FileText, User, LogOut, X, ShoppingCart, Barcode, Shield, Tag, BookOpen, Package, Truck, ClipboardList, ArrowLeftRight, Wrench } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -24,6 +24,15 @@ const navItems = [
   { href: "/productos/historial", label: "Historial Productos", icon: Barcode },
   { href: "/productos/etiquetas", label: "Imprimir Etiquetas", icon: Tag },
   { href: "/reportes", label: "Reportes", icon: FileText },
+]
+
+const inventarioItems = [
+  { href: "/inventario", label: "Inventario", icon: Package },
+  { href: "/inventario/productos", label: "Stock Productos", icon: ClipboardList },
+  { href: "/inventario/compras", label: "Compras", icon: Truck },
+  { href: "/inventario/proveedores", label: "Proveedores", icon: Truck },
+  { href: "/inventario/ajustes", label: "Ajustes de Stock", icon: Wrench },
+  { href: "/inventario/movimientos", label: "Movimientos", icon: ArrowLeftRight },
 ]
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
@@ -72,6 +81,32 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <nav className="flex-1 space-y-2 p-4">
             {navItems.map((item) => {
               const isActive = pathname === item.href
+              const Icon = item.icon
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "hover:bg-white/10 text-white/90"
+                  )}
+                >
+                  <Icon className="h-5 w-5" />
+                  {item.label}
+                </Link>
+              )
+            })}
+
+            {/* Inventario Section */}
+            <div className="my-2 border-t border-white/10" />
+            <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-white/50">
+              Inventario
+            </p>
+            {inventarioItems.map((item) => {
+              const isActive = pathname === item.href || (item.href !== "/inventario" && pathname.startsWith(item.href))
               const Icon = item.icon
               return (
                 <Link

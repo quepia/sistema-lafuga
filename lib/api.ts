@@ -1,16 +1,24 @@
 // API Service para comunicación directa con Supabase
 // Sistema de Gestión de Precios - LA FUGA
 
-import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, CAMPOS_VISIBLES_DEFAULT } from './supabase';
+import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, CAMPOS_VISIBLES_DEFAULT, MovimientoStock, TipoMovimiento, TipoAjuste, AjusteStockInput, AlertaStock, Compra, CompraDetalle, CompraInsert, CompraDetalleInsert, CompraConDetalle, TipoDocumentoCompra, EstadoCompra, ComposicionCombo, ComposicionComboInsert, ConfiguracionSistema, MetodoCosteo, Proveedor, ProveedorInsert, ProveedorUpdate } from './supabase';
 import { logProductChange } from './supabase-utils';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
 const TABLA_HISTORIAL = 'historial_productos';
 const TABLA_CATALOGOS = 'catalogos';
+const TABLA_MOVIMIENTOS = 'movimientos_stock';
+const TABLA_COMPRAS = 'compras';
+const TABLA_COMPRAS_DETALLE = 'compras_detalle';
+const TABLA_COMPOSICION_COMBOS = 'composicion_combos';
+const TABLA_CONFIG = 'configuracion_sistema';
+const TABLA_PROVEEDORES = 'proveedores';
 
 // Re-export types for convenience
-export type { Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo };
+export type { Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, MovimientoStock, TipoMovimiento, TipoAjuste, AjusteStockInput, AlertaStock };
+export type { Compra, CompraDetalle, CompraInsert, CompraDetalleInsert, CompraConDetalle, TipoDocumentoCompra, EstadoCompra, ComposicionCombo, ComposicionComboInsert, ConfiguracionSistema, MetodoCosteo };
+export type { Proveedor, ProveedorInsert, ProveedorUpdate };
 
 // ==================== TIPOS DE VENTAS ====================
 
@@ -1333,7 +1341,466 @@ export const api = {
     if (error) handleSupabaseError(error);
     return (data as Producto[]) || [];
   },
+
+  // ==================== MOVIMIENTOS DE STOCK ====================
+
+  async registrarMovimiento(movimiento: Omit<MovimientoStock, 'id' | 'created_at'>): Promise<MovimientoStock> {
+    const { data, error } = await supabase
+      .from(TABLA_MOVIMIENTOS)
+      .insert(movimiento)
+      .select()
+      .single();
+    if (error) handleSupabaseError(error);
+    return data as MovimientoStock;
+  },
+
+  async obtenerMovimientos(filtros: {
+    producto_id?: string;
+    tipo_movimiento?: TipoMovimiento;
+    desde?: string;
+    hasta?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ movimientos: MovimientoStock[]; total: number }> {
+    let query = supabase
+      .from(TABLA_MOVIMIENTOS)
+      .select('*', { count: 'exact' });
+
+    if (filtros.producto_id) query = query.eq('producto_id', filtros.producto_id);
+    if (filtros.tipo_movimiento) query = query.eq('tipo_movimiento', filtros.tipo_movimiento);
+    if (filtros.desde) query = query.gte('created_at', filtros.desde);
+    if (filtros.hasta) query = query.lte('created_at', filtros.hasta);
+
+    query = query.order('created_at', { ascending: false });
+
+    if (filtros.limit) query = query.limit(filtros.limit);
+    if (filtros.offset) query = query.range(filtros.offset, filtros.offset + (filtros.limit || 50) - 1);
+
+    const { data, error, count } = await query;
+    if (error) handleSupabaseError(error);
+    return { movimientos: (data || []) as MovimientoStock[], total: count || 0 };
+  },
+
+  async obtenerKardex(productoId: string, limit = 100): Promise<MovimientoStock[]> {
+    const { data, error } = await supabase
+      .from(TABLA_MOVIMIENTOS)
+      .select('*')
+      .eq('producto_id', productoId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) handleSupabaseError(error);
+    return (data || []) as MovimientoStock[];
+  },
+
+  // ==================== AJUSTES DE STOCK ====================
+
+  async ajustarStock(ajuste: AjusteStockInput): Promise<MovimientoStock> {
+    // 1. Obtener stock actual
+    const producto = await this.obtenerProducto(ajuste.producto_id);
+    if (!producto) throw new ApiError('Producto no encontrado', 404);
+
+    const stockActual = (producto as any).stock_actual ?? 0;
+    const diferencia = ajuste.cantidad_real - stockActual;
+
+    // 2. Actualizar stock en productos
+    const { error: updateError } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .update({ stock_actual: ajuste.cantidad_real } as any) // Cast as any because type might not exist yet
+      .eq('id', ajuste.producto_id);
+    if (updateError) handleSupabaseError(updateError);
+
+    // 3. Crear movimiento
+    const movimiento = await this.registrarMovimiento({
+      producto_id: ajuste.producto_id,
+      tipo_movimiento: ajuste.tipo_ajuste,
+      cantidad: diferencia,
+      stock_previo: stockActual,
+      stock_resultante: ajuste.cantidad_real,
+      costo_unitario: producto.costo || 0,
+      costo_total: Math.abs(diferencia) * (producto.costo || 0),
+      usuario_id: ajuste.usuario_id || null,
+      referencia_id: null,
+      referencia_tipo: 'AJUSTE',
+      motivo: ajuste.motivo,
+      lote: null,
+      fecha_vencimiento: null,
+    });
+
+    return movimiento;
+  },
+
+  // ==================== ALERTAS DE STOCK ====================
+
+  async obtenerAlertasStock(): Promise<AlertaStock[]> {
+    // Supabase JS client can't compare two columns directly,
+    // so we fetch all products with stock_minimo configured and filter in JS
+    const { data, error: e1 } = await supabase
+      .from(TABLA_PRODUCTOS)
+      .select('id, nombre, stock_actual, stock_minimo')
+      .not('stock_minimo', 'is', null)
+      .gt('stock_minimo', 0)
+      .eq('estado', 'activo');
+
+    if (e1) handleSupabaseError(e1);
+
+    const alertas: AlertaStock[] = [];
+    for (const p of (data || [])) {
+      const stockActual = (p as any).stock_actual ?? 0;
+      const stockMinimo = (p as any).stock_minimo ?? 0;
+      if (stockActual <= stockMinimo) {
+        alertas.push({
+          producto_id: p.id,
+          nombre: p.nombre,
+          stock_actual: stockActual,
+          stock_minimo: stockMinimo,
+          nivel: stockActual <= stockMinimo * 0.5 ? 'critico' : 'precaucion',
+        });
+      }
+    }
+
+    return alertas.sort((a, b) => a.stock_actual - b.stock_actual);
+  },
+
+  // ==================== COMPRAS ====================
+
+  async registrarCompra(datos: CompraInsert): Promise<Compra> {
+    // 1. Calcular totales
+    let subtotal = 0;
+    for (const item of datos.items) {
+      subtotal += item.cantidad * item.costo_unitario;
+    }
+    const iva = subtotal * 0.21; // 21% IVA Argentina
+    const total = subtotal + iva;
+
+    // 2. Crear cabecera de compra
+    const { data: compra, error: compraError } = await supabase
+      .from(TABLA_COMPRAS)
+      .insert({
+        proveedor_id: datos.proveedor_id,
+        fecha: datos.fecha || new Date().toISOString().split('T')[0],
+        numero_factura: datos.numero_factura || null,
+        tipo_documento: datos.tipo_documento || 'FACTURA_A',
+        cae: datos.cae || null,
+        subtotal,
+        iva,
+        total,
+        estado: 'PENDIENTE',
+        notas: datos.notas || null,
+        usuario_id: datos.usuario_id || null,
+      })
+      .select()
+      .single();
+
+    if (compraError) handleSupabaseError(compraError);
+
+    // 3. Crear detalle
+    const detalleRows = datos.items.map(item => ({
+      compra_id: (compra as Compra).id,
+      producto_id: item.producto_id,
+      cantidad: item.cantidad,
+      cantidad_recibida: item.cantidad,
+      costo_unitario: item.costo_unitario,
+      costo_total: item.cantidad * item.costo_unitario,
+      fecha_vencimiento: item.fecha_vencimiento || null,
+      lote: item.lote || null,
+    }));
+
+    const { error: detalleError } = await supabase
+      .from(TABLA_COMPRAS_DETALLE)
+      .insert(detalleRows);
+
+    if (detalleError) handleSupabaseError(detalleError);
+
+    // 4. Por cada item, actualizar stock del producto
+    for (const item of datos.items) {
+      // Obtener producto actual
+      const { data: producto, error: prodError } = await supabase
+        .from(TABLA_PRODUCTOS)
+        .select('stock_actual, costo, factor_conversion')
+        .eq('id', item.producto_id)
+        .single();
+
+      if (prodError) {
+        console.error('Error obteniendo producto para actualizar stock:', prodError);
+        continue;
+      }
+
+      const stockActual = (producto as any)?.stock_actual ?? 0;
+      const factorConversion = (producto as any)?.factor_conversion ?? 1;
+      const cantidadEnUnidadStock = item.cantidad * factorConversion;
+      const nuevoStock = stockActual + cantidadEnUnidadStock;
+
+      // Calcular costo promedio ponderado
+      const costoActual = (producto as any)?.costo ?? 0;
+      let nuevoCosto = item.costo_unitario / factorConversion; // Costo por unidad de stock
+      if (stockActual > 0 && costoActual > 0) {
+        nuevoCosto = ((stockActual * costoActual) + (cantidadEnUnidadStock * (item.costo_unitario / factorConversion))) / nuevoStock;
+      }
+      nuevoCosto = Math.round(nuevoCosto * 100) / 100;
+
+      // Actualizar stock y costo
+      const { error: updateError } = await supabase
+        .from(TABLA_PRODUCTOS)
+        .update({
+          stock_actual: nuevoStock,
+          costo: nuevoCosto,
+        })
+        .eq('id', item.producto_id);
+
+      if (updateError) {
+        console.error('Error actualizando stock:', updateError);
+      }
+
+      // 5. Crear movimiento de stock
+      await supabase.from(TABLA_MOVIMIENTOS).insert({
+        producto_id: item.producto_id,
+        tipo_movimiento: 'COMPRA',
+        cantidad: cantidadEnUnidadStock,
+        stock_previo: stockActual,
+        stock_resultante: nuevoStock,
+        costo_unitario: item.costo_unitario / factorConversion,
+        costo_total: cantidadEnUnidadStock * (item.costo_unitario / factorConversion),
+        usuario_id: datos.usuario_id || null,
+        referencia_id: (compra as Compra).id,
+        referencia_tipo: 'COMPRA',
+        motivo: null,
+        lote: item.lote || null,
+        fecha_vencimiento: item.fecha_vencimiento || null,
+      });
+    }
+
+    // 6. Actualizar estado a RECIBIDA
+    await supabase
+      .from(TABLA_COMPRAS)
+      .update({ estado: 'RECIBIDA' })
+      .eq('id', (compra as Compra).id);
+
+    return { ...(compra as Compra), estado: 'RECIBIDA' };
+  },
+
+  async listarCompras(params: {
+    proveedor_id?: string;
+    estado?: EstadoCompra;
+    desde?: string;
+    hasta?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ compras: Compra[]; total: number }> {
+    const { limit = 50, offset = 0 } = params;
+
+    let query = supabase
+      .from(TABLA_COMPRAS)
+      .select('*', { count: 'exact' })
+      .order('fecha', { ascending: false });
+
+    if (params.proveedor_id) query = query.eq('proveedor_id', params.proveedor_id);
+    if (params.estado) query = query.eq('estado', params.estado);
+    if (params.desde) query = query.gte('fecha', params.desde);
+    if (params.hasta) query = query.lte('fecha', params.hasta);
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+    if (error) handleSupabaseError(error);
+
+    return { compras: (data || []) as Compra[], total: count || 0 };
+  },
+
+  // ==================== PROVEEDORES ====================
+
+  async listarProveedores(params: {
+    query?: string;
+    activo?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ proveedores: Proveedor[]; total: number }> {
+    const { limit = 50, offset = 0 } = params;
+
+    let query = supabase
+      .from(TABLA_PROVEEDORES)
+      .select('*', { count: 'exact' })
+      .order('nombre', { ascending: true });
+
+    if (params.activo !== undefined) {
+      query = query.eq('activo', params.activo);
+    }
+    if (params.query) {
+      query = query.or(`nombre.ilike.%${params.query}%,cuit.ilike.%${params.query}%,contacto.ilike.%${params.query}%`);
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+    if (error) handleSupabaseError(error);
+
+    return { proveedores: (data || []) as Proveedor[], total: count || 0 };
+  },
+
+  async obtenerProveedor(id: string): Promise<Proveedor | null> {
+    const { data, error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      handleSupabaseError(error);
+    }
+    return data as Proveedor;
+  },
+
+  async crearProveedor(datos: ProveedorInsert): Promise<Proveedor> {
+    const { data, error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .insert({
+        nombre: datos.nombre,
+        cuit: datos.cuit || null,
+        contacto: datos.contacto || null,
+        telefono: datos.telefono || null,
+        email: datos.email || null,
+        direccion: datos.direccion || null,
+        condicion_pago: datos.condicion_pago || null,
+        notas: datos.notas || null,
+      })
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Proveedor;
+  },
+
+  async actualizarProveedor(id: string, datos: ProveedorUpdate): Promise<Proveedor> {
+    const { data, error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .update(datos)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) handleSupabaseError(error);
+    return data as Proveedor;
+  },
+
+  async desactivarProveedor(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .update({ activo: false })
+      .eq('id', id);
+
+    if (error) handleSupabaseError(error);
+  },
+
+  async activarProveedor(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .update({ activo: true })
+      .eq('id', id);
+
+    if (error) handleSupabaseError(error);
+  },
+
+  async obtenerProveedoresActivos(): Promise<Proveedor[]> {
+    const { data, error } = await supabase
+      .from(TABLA_PROVEEDORES)
+      .select('*')
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+
+    if (error) handleSupabaseError(error);
+    return (data || []) as Proveedor[];
+  },
+
+  async obtenerCompra(id: string): Promise<CompraConDetalle | null> {
+    const { data: compra, error: compraError } = await supabase
+      .from(TABLA_COMPRAS)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (compraError) {
+      if (compraError.code === 'PGRST116') return null;
+      handleSupabaseError(compraError);
+    }
+
+    const { data: detalle, error: detalleError } = await supabase
+      .from(TABLA_COMPRAS_DETALLE)
+      .select('*')
+      .eq('compra_id', id);
+
+    if (detalleError) handleSupabaseError(detalleError);
+
+    return {
+      ...(compra as Compra),
+      detalle: (detalle || []) as CompraDetalle[],
+    };
+  },
+
+  // ==================== COMBOS/KITS ====================
+
+  async obtenerComponentesCombo(productoId: string): Promise<ComposicionCombo[]> {
+    const { data, error } = await supabase
+      .from(TABLA_COMPOSICION_COMBOS)
+      .select('*')
+      .eq('producto_padre_id', productoId);
+    if (error) handleSupabaseError(error);
+    return (data || []) as ComposicionCombo[];
+  },
+
+  async guardarComponentesCombo(productoId: string, componentes: ComposicionComboInsert[]): Promise<void> {
+    // Eliminar componentes actuales
+    const { error: deleteError } = await supabase
+      .from(TABLA_COMPOSICION_COMBOS)
+      .delete()
+      .eq('producto_padre_id', productoId);
+    if (deleteError) handleSupabaseError(deleteError);
+
+    // Insertar nuevos
+    if (componentes.length > 0) {
+      const rows = componentes.map(c => ({
+        producto_padre_id: productoId,
+        producto_hijo_id: c.producto_hijo_id,
+        cantidad: c.cantidad,
+      }));
+      const { error: insertError } = await supabase
+        .from(TABLA_COMPOSICION_COMBOS)
+        .insert(rows);
+      if (insertError) handleSupabaseError(insertError);
+    }
+  },
+
+  async obtenerCombosQueContienen(productoId: string): Promise<ComposicionCombo[]> {
+    const { data, error } = await supabase
+      .from(TABLA_COMPOSICION_COMBOS)
+      .select('*')
+      .eq('producto_hijo_id', productoId);
+    if (error) handleSupabaseError(error);
+    return (data || []) as ComposicionCombo[];
+  },
+
+  // ==================== CONFIGURACIÓN SISTEMA ====================
+
+  async obtenerConfiguracion(): Promise<Record<string, string>> {
+    const { data, error } = await supabase
+      .from(TABLA_CONFIG)
+      .select('clave, valor');
+    if (error) handleSupabaseError(error);
+    const config: Record<string, string> = {};
+    for (const row of (data || [])) {
+      config[(row as any).clave] = (row as any).valor;
+    }
+    return config;
+  },
+
+  async actualizarConfiguracion(clave: string, valor: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLA_CONFIG)
+      .update({ valor })
+      .eq('clave', clave);
+    if (error) handleSupabaseError(error);
+  },
 };
+
 
 export interface ReportesData {
   valuacion: {

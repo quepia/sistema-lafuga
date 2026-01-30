@@ -402,7 +402,17 @@ export default function NuevaVentaPage() {
                       onClick={() => agregarAlCarrito(producto)}
                     >
                       <div>
-                        <p className="font-medium">{producto.nombre}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{producto.nombre}</p>
+                          {(producto as any).stock_actual !== undefined && (
+                            <Badge
+                              variant={((producto as any).stock_actual <= ((producto as any).stock_minimo || 0) || (producto as any).stock_actual === 0) ? "destructive" : "secondary"}
+                              className="text-[10px] h-5 px-1"
+                            >
+                              {(producto as any).stock_actual <= 0 ? "Sin Stock" : `Stock: ${(producto as any).stock_actual}`}
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           {producto.id} - {producto.categoria || "Sin categoría"}
                         </p>

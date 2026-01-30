@@ -196,6 +196,7 @@ export function EditPriceDialog({
                   <div className="flex items-center gap-1 ml-4">
                     <Input
                       type="text"
+                      autoComplete="off"
                       inputMode="decimal"
                       className="w-20 h-8"
                       value={porcentajeStr}
@@ -217,6 +218,7 @@ export function EditPriceDialog({
                     <span>$</span>
                     <Input
                       type="text"
+                      autoComplete="off"
                       inputMode="decimal"
                       className="w-28 h-8"
                       value={montoDescuentoStr}
@@ -237,6 +239,7 @@ export function EditPriceDialog({
                     <span>$</span>
                     <Input
                       type="text"
+                      autoComplete="off"
                       inputMode="decimal"
                       className="w-28 h-8"
                       value={precioFijoStr}
