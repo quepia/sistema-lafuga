@@ -43,7 +43,15 @@
       "Bash(npx tsc --noEmit)",
       "Bash(tree:*)",
       "Bash(find:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nBackup automatico semanal a Google Drive\n\n- GitHub Actions workflow \\(domingos 3AM ARG\\) con ejecucion manual\n- Scripts de backup: export Supabase, generacion Excel, upload Google Drive\n- API route /api/backup protegida \\(solo admin\\) para backup manual\n- Boton de backup manual en el dashboard con feedback de estado\n- .gitignore actualizado para excluir credenciales de Google\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(git commit:*)",
+      "Bash(xxd:*)"
     ]
   }
 }
