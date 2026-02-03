@@ -1,163 +1,574 @@
-# Módulo de Inventario y Stock — Plan de Implementación
+# Plan de Implementación: Módulo de Inventario y Stock
 
-> Plan organizado en fases con tareas paralelizables para múltiples agentes.
-> Cada tarea marcada con `[Agente X]` indica que puede ejecutarse en paralelo con otras del mismo grupo.
-
----
-
-## FASE 1: Base de Datos (Schema + Migraciones)
-
-Todo el schema se puede crear en paralelo porque las tablas no tienen dependencias circulares.
-
-### Grupo 1A — Tablas nuevas (paralelizable)
-
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 1.1 | Crear tabla `proveedores` | Agente A | Tabla con campos: id, nombre, cuit, contacto, telefono, email, direccion, condicion_pago, notas, activo, created_at. Incluir RLS (soft delete, no hard delete). |
-| 1.2 | Crear tabla `movimientos_stock` | Agente B | Tabla inmutable (solo INSERT). Campos: id, created_at, producto_id (FK), tipo_movimiento (enum con 12 valores), cantidad, stock_previo, stock_resultante, costo_unitario, costo_total, usuario_id, referencia_id, referencia_tipo, motivo, lote, fecha_vencimiento. Índices: (producto_id, created_at) y (tipo_movimiento, created_at). RLS: solo INSERT para usuarios normales. |
-| 1.3 | Crear tablas `compras` + `compras_detalle` | Agente C | Cabecera con proveedor_id (FK), fecha, numero_factura, tipo_documento, cae, subtotal, iva, total, estado, notas, usuario_id. Detalle con compra_id (FK), producto_id (FK), cantidad, cantidad_recibida, costo_unitario, costo_total, fecha_vencimiento, lote. RLS: no permitir DELETE si estado='RECIBIDA'. |
-| 1.4 | Crear tabla `composicion_combos` | Agente A | producto_padre_id (FK), producto_hijo_id (FK), cantidad. Simple join table. |
-| 1.5 | Crear tabla `ordenes_compra` | Agente B | Similar a compras pero con estados de workflow: BORRADOR, PENDIENTE, APROBADA, ENVIADA, PARCIAL, COMPLETA, CANCELADA. Campos: numero_orden, fecha_orden, fecha_entrega_esperada, etc. |
-
-### Grupo 1B — Modificar tabla `productos` (un solo agente)
-
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 1.6 | Agregar campos de stock a `productos` | Agente D | Nuevos campos: stock_actual (float, default 0), stock_minimo (float, default 0), stock_maximo (float, nullable), stock_reservado (float, default 0), punto_pedido (float, nullable), permite_stock_negativo (bool, default true), unidad_stock (string, default 'unidad'), unidad_compra (string, default 'unidad'), factor_conversion (float, default 1), merma_esperada (float, default 0), ubicacion_deposito (string, nullable), controla_vencimiento (bool, default false), codigo_barras (string, nullable — OJO: ya existe `codigo_barra`, evaluar si renombrar o usar el existente), proveedor_predeterminado_id (uuid FK -> proveedores). Índices: (stock_actual) WHERE stock_actual <= stock_minimo, (codigo_barras). |
-
-### Grupo 1C — Configuración global
-
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 1.7 | Crear tabla o mecanismo de `configuracion_sistema` | Agente D | Tabla key-value o JSON para: metodo_costeo ('PROMEDIO_PONDERADO'), permitir_venta_sin_stock (true), alertas_stock_email (false), dias_alerta_vencimiento (30). Alternativa: usar una tabla `configuracion` con campos tipados. |
-
-**Resultado esperado:** Todas las migraciones SQL listas en `/supabase/migrations/`. Ejecutar en orden: primero proveedores, luego las que tienen FK a productos/proveedores.
+Este documento detalla la arquitectura para el nuevo módulo de control de stock, diseñado para integrarse con el sistema existente de "Sistema de Gestión de Precios - La Fuga".
 
 ---
 
-## FASE 2: API y Lógica de Negocio
+## 1. Cambios en Base de Datos (Supabase)
 
-Requiere que Fase 1 esté completa. Las funciones de API se pueden desarrollar en paralelo.
+Se requieren migraciones SQL para soportar el control de inventario.
 
-### Grupo 2A — Types y API base (paralelizable)
+### 1.1 Modificación de tabla `productos`
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 2.1 | Definir interfaces TypeScript | Agente A | En `lib/supabase.ts`: agregar interfaces Proveedor, MovimientoStock, Compra, CompraDetalle, ComposicionCombo, OrdenCompra, ConfiguracionSistema. Extender la interface Producto con los nuevos campos de stock. Crear enums TipoMovimiento, EstadoCompra, TipoDocumento, MetodoCosteo. |
-| 2.2 | Funciones API de Proveedores (CRUD) | Agente B | En `lib/api.ts`: listarProveedores, obtenerProveedor, crearProveedor, actualizarProveedor, desactivarProveedor (soft delete). Seguir el patrón existente del proyecto. |
-| 2.3 | Funciones API de Movimientos de Stock | Agente C | En `lib/api.ts`: registrarMovimiento (función base interna), obtenerMovimientos (con filtros por producto/fecha/tipo), obtenerKardex (historial de un producto con saldos). |
-| 2.4 | Función obtenerAlertasStock | Agente D | En `lib/api.ts`: query productos donde stock_actual <= stock_minimo (crítico), stock_actual entre mínimo y mínimo+20% (precaución). Incluir productos próximos a vencer si controla_vencimiento = true. |
+Agregar campos para gestionar cantidades, alertas y conversiones.
 
-### Grupo 2B — Lógica de negocio core (secuencial entre sí, pero paralelizable por función)
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `stock_actual` | float | Cantidad actual disponible. Default 0. |
+| `stock_minimo` | float | Cantidad mínima antes de mostrar alerta. Default 0. |
+| `stock_maximo` | float | Cantidad máxima recomendada (para evitar sobrestock). Nullable. |
+| `stock_reservado` | float | Cantidad comprometida en ventas pendientes. Default 0. |
+| `punto_pedido` | float | Nivel de stock que dispara alerta de compra. Nullable. |
+| `permite_stock_negativo` | boolean | Si permite vender sin stock. Default true (para transición suave). |
+| `unidad_stock` | string | Unidad base de medida del inventario (ej. "unidad", "litro", "kg"). Default "unidad". |
+| `unidad_compra` | string | Unidad en la que se compra al proveedor (ej. "Bulto", "Caja"). Default "unidad". |
+| `factor_conversion` | float | Cuántas unidades de stock trae una unidad de compra. Default 1. |
+| `merma_esperada` | float | Porcentaje de pérdida esperada. Default 0. |
+| `ubicacion_deposito` | string | Ubicación física en el depósito (ej. "Estante A3"). Nullable. |
+| `controla_vencimiento` | boolean | Si requiere control de fecha de vencimiento. Default false. |
+| `codigo_barras` | string | Código de barras para escaneo rápido. Nullable. |
+| `proveedor_predeterminado_id` | uuid | FK -> proveedores.id. Proveedor habitual. |
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 2.5 | Función `registrarCompra` | Agente A | Crear compra + detalle, convertir unidades (factor_conversion), incrementar stock_actual, crear movimientos tipo COMPRA, actualizar costo según método (promedio ponderado o último costo). Todo en transacción atómica (usar Supabase rpc o función SQL). |
-| 2.6 | Función `ajustarStock` | Agente B | Recibe productoId, cantidadReal, motivo, tipoAjuste. Calcula diferencia, actualiza stock_actual, crea movimiento (AJUSTE_MANUAL, MERMA, ROTURA, VENCIMIENTO). |
-| 2.7 | Modificar `crearVenta` / `crearVentaExtendida` | Agente C | Agregar: validar stock disponible (si permite_stock_negativo=false), decrementar stock_actual, crear movimiento tipo VENTA. Para combos: recorrer composicion_combos y descontar componentes. Manejar estados PRESUPUESTO/PENDIENTE/CONFIRMADA/CANCELADA. Todo en transacción atómica. |
-| 2.8 | Función `registrarDevolucion` | Agente D | Devolución cliente: incrementar stock si buen estado, registrar merma si dañado, movimiento DEVOLUCION_CLIENTE. Devolución proveedor: decrementar stock, movimiento DEVOLUCION_PROVEEDOR. |
+### 1.2 Nueva tabla `proveedores`
 
-### Grupo 2C — Hooks de React
+Para gestionar el origen de la mercadería.
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 2.9 | Hook `useProveedores` | Agente A | Listar, buscar, CRUD. Seguir patrón de `useProductos`. |
-| 2.10 | Hook `useInventario` | Agente B | Estado de stock, alertas, KPIs (valor total inventario, productos críticos, sin movimiento 30 días). |
-| 2.11 | Hook `useCompras` | Agente C | Listar compras, crear compra, detalle de compra. |
-| 2.12 | Hook `useMovimientosStock` | Agente D | Historial filtrable, kardex por producto. |
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `nombre` | string | Nombre o razón social del proveedor. Requerido. |
+| `cuit` | string | CUIT del proveedor (Argentina). Nullable. |
+| `contacto` | string | Nombre de la persona de contacto. Nullable. |
+| `telefono` | string | Teléfono de contacto. Nullable. |
+| `email` | string | Email de contacto. Nullable. |
+| `direccion` | string | Dirección del proveedor. Nullable. |
+| `condicion_pago` | string | Condiciones habituales (ej. "Contado", "30 días"). Nullable. |
+| `notas` | text | Observaciones generales. Nullable. |
+| `activo` | boolean | Soft delete. Default true. |
+| `created_at` | timestamp | Fecha de creación. |
+
+### 1.3 Nueva tabla `movimientos_stock`
+
+Bitácora inmutable de todos los cambios de inventario. Esta tabla es de solo inserción para mantener trazabilidad completa.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `created_at` | timestamp | Fecha y hora del movimiento. Default now(). |
+| `producto_id` | uuid | FK -> productos.id |
+| `tipo_movimiento` | enum | Tipo: 'VENTA', 'COMPRA', 'AJUSTE_MANUAL', 'MERMA', 'ROTURA', 'VENCIMIENTO', 'DEVOLUCION_CLIENTE', 'DEVOLUCION_PROVEEDOR', 'INVENTARIO_INICIAL', 'TRANSFERENCIA_ENTRADA', 'TRANSFERENCIA_SALIDA', 'CONSUMO_INTERNO'. |
+| `cantidad` | float | Cantidad movida (positivo entradas, negativo salidas). |
+| `stock_previo` | float | Snapshot del stock antes del movimiento. |
+| `stock_resultante` | float | Snapshot del stock después del movimiento. |
+| `costo_unitario` | float | Costo al momento del movimiento. |
+| `costo_total` | float | Costo total del movimiento (cantidad × costo). |
+| `usuario_id` | uuid | Usuario que realizó la acción. |
+| `referencia_id` | uuid | ID de venta, compra o ajuste relacionado. Nullable. |
+| `referencia_tipo` | string | 'VENTA', 'COMPRA', 'AJUSTE', 'TRANSFERENCIA'. Nullable. |
+| `motivo` | string | Descripción para ajustes manuales. Nullable. |
+| `lote` | string | Identificador de lote. Nullable. |
+| `fecha_vencimiento` | date | Fecha de vencimiento del lote. Nullable. |
+
+### 1.4 Nueva tabla `compras`
+
+Cabecera de compras para agrupar items y reconstruir documentos del proveedor.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `proveedor_id` | uuid | FK -> proveedores.id |
+| `fecha` | date | Fecha de la compra/recepción. |
+| `numero_factura` | string | Número de factura o remito del proveedor. |
+| `tipo_documento` | string | 'FACTURA_A', 'FACTURA_B', 'FACTURA_C', 'REMITO', 'NOTA_CREDITO'. |
+| `cae` | string | Código CAE para facturación electrónica Argentina. Nullable. |
+| `subtotal` | float | Subtotal antes de impuestos. |
+| `iva` | float | Monto de IVA. |
+| `total` | float | Total de la compra. |
+| `estado` | string | 'PENDIENTE', 'RECIBIDA', 'PARCIAL', 'CANCELADA'. |
+| `notas` | text | Observaciones. Nullable. |
+| `usuario_id` | uuid | Usuario que registró la compra. |
+| `created_at` | timestamp | Fecha de creación. |
+
+### 1.5 Nueva tabla `compras_detalle`
+
+Detalle de cada ítem de una compra.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `compra_id` | uuid | FK -> compras.id |
+| `producto_id` | uuid | FK -> productos.id |
+| `cantidad` | float | Cantidad comprada (en unidad de compra). |
+| `cantidad_recibida` | float | Cantidad efectivamente recibida. Default igual a cantidad. |
+| `costo_unitario` | float | Costo por unidad de compra. |
+| `costo_total` | float | Costo total de la línea. |
+| `fecha_vencimiento` | date | Fecha de vencimiento del lote. Nullable. |
+| `lote` | string | Identificador de lote. Nullable. |
+
+### 1.6 Nueva tabla `composicion_combos` (Kits)
+
+Permite definir productos compuestos que descuentan stock de sus componentes.
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `producto_padre_id` | uuid | FK -> productos.id. El producto Combo/Kit. |
+| `producto_hijo_id` | uuid | FK -> productos.id. El componente. |
+| `cantidad` | float | Cantidad del componente por cada unidad del combo. |
+
+### 1.7 Nueva tabla `ordenes_compra`
+
+Separación entre orden de compra y recepción física (flujo avanzado).
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | uuid | Primary Key |
+| `proveedor_id` | uuid | FK -> proveedores.id |
+| `numero_orden` | string | Número interno de orden. |
+| `fecha_orden` | date | Fecha de emisión. |
+| `fecha_entrega_esperada` | date | Fecha prometida de entrega. |
+| `estado` | string | 'BORRADOR', 'PENDIENTE', 'APROBADA', 'ENVIADA', 'PARCIAL', 'COMPLETA', 'CANCELADA'. |
+| `subtotal` | float | Subtotal antes de impuestos. |
+| `iva` | float | IVA calculado. |
+| `total` | float | Total. |
+| `observaciones` | text | Notas internas. |
+| `created_at` | timestamp | Fecha de creación. |
+
+### 1.8 Índices recomendados
+
+Para optimizar consultas frecuentes:
+
+- `movimientos_stock(producto_id, created_at)`: Historial por producto
+- `movimientos_stock(tipo_movimiento, created_at)`: Reportes por tipo
+- `productos(stock_actual) WHERE stock_actual <= stock_minimo`: Alertas de stock bajo
+- `productos(codigo_barras)`: Búsqueda por escaneo
+- `compras(proveedor_id, fecha)`: Historial de compras por proveedor
+
+### 1.9 Políticas de seguridad (RLS)
+
+- `movimientos_stock`: Solo INSERT para usuarios normales. Las correcciones se hacen con nuevos movimientos compensatorios, nunca editando registros existentes.
+- `proveedores`: Soft delete mediante campo `activo`, nunca eliminar para preservar referencias históricas.
+- `compras` y `compras_detalle`: No permitir eliminación una vez que el estado sea 'RECIBIDA'.
 
 ---
 
-## FASE 3: UI — Páginas de Consulta (read-only)
+## 2. Lógica de Negocio (Backend/API)
 
-Se puede arrancar cuando los types (2.1) y hooks estén listos. Las páginas son independientes entre sí.
+Actualizar `lib/api.ts` y crear nuevos hooks para gestión de inventario.
 
-### Grupo 3A — Estructura base
+### 2.1 Configuración global del sistema
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 3.1 | Agregar sección "Inventario" al sidebar | Agente A | En `components/sidebar.tsx`: nueva sección con ícono Package (lucide-react). Sub-items: Dashboard (/inventario), Stock (/inventario/productos), Compras (/inventario/compras), Proveedores (/inventario/proveedores), Ajustes (/inventario/ajustes), Movimientos (/inventario/movimientos). Crear layout en `app/(protected)/inventario/layout.tsx` si necesario. |
+Agregar configuraciones a nivel sistema:
 
-### Grupo 3B — Páginas de consulta (paralelizable)
+- `metodo_costeo`: 'PROMEDIO_PONDERADO', 'ULTIMO_COSTO', 'FIFO'. Default: 'PROMEDIO_PONDERADO'
+- `permitir_venta_sin_stock`: Comportamiento por defecto cuando no hay stock
+- `alertas_stock_email`: Si enviar notificaciones por email
+- `dias_alerta_vencimiento`: Cuántos días antes alertar productos a vencer
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 3.2 | Dashboard de Inventario (`/inventario`) | Agente A | KPIs: valor total inventario (a costo), productos con stock crítico, productos sin movimiento (30 días), próximos a vencer. Accesos rápidos: registrar compra, ajuste rápido, ver alertas. Usar Cards de Radix UI + recharts para gráficos. |
-| 3.3 | Lista de Inventario (`/inventario/productos`) | Agente B | Tabla con: código, producto, stock actual, mínimo, máximo, estado (indicador color rojo/amarillo/verde), último movimiento, costo unitario. Filtros: estado stock, categoría, proveedor. Acciones: ver historial, ajuste rápido (+/-), editar parámetros stock. Export Excel. |
-| 3.4 | Historial de Movimientos (`/inventario/movimientos`) | Agente C | Tabla con: fecha/hora, producto, tipo movimiento, cantidad, stock resultante, referencia (venta/compra/ajuste), usuario. Filtros por producto, fecha, tipo. Paginación. |
-| 3.5 | Gestión de Proveedores (`/inventario/proveedores`) | Agente D | ABM completo: lista con nombre, CUIT, teléfono, última compra, estado. Dialog de crear/editar. Detalle con historial de compras y productos frecuentes. Soft delete (activar/desactivar). |
+### 2.2 Actualización de `crearVenta`
+
+**Validaciones previas:**
+- Verificar stock disponible (stock_actual - stock_reservado) si `permite_stock_negativo` es false
+- Mostrar advertencia (no bloqueo) si el stock quedaría por debajo del mínimo
+
+**Manejo de estados de venta:**
+- `PRESUPUESTO`: No descuenta stock, no genera movimiento
+- `PENDIENTE`: Reserva stock (bloquea) pero no descuenta físicamente
+- `CONFIRMADA`: Descuenta stock físico, libera reserva previa, genera movimiento tipo 'VENTA'
+- `CANCELADA`: Si estaba confirmada, devuelve stock con movimiento 'DEVOLUCION_CLIENTE'. Si estaba pendiente, libera reserva.
+
+**Manejo de Combos/Kits:**
+- Si el producto es un "Combo", no descontar su propio stock (es virtual)
+- Recorrer `composicion_combos` y descontar el stock de cada componente
+- Generar un movimiento de stock por cada componente afectado
+
+**Transacción atómica:**
+Al crear una venta confirmada, en una única transacción:
+1. Registrar la venta en `ventas`
+2. Por cada producto vendido:
+   - Decrementar `stock_actual` en `productos`
+   - Crear registro en `movimientos_stock` (Tipo: 'VENTA')
+3. Si algún paso falla, revertir toda la operación
+
+### 2.3 Nueva función `registrarCompra`
+
+**Parámetros:** proveedorId, items[], numeroFactura, tipoDocumento, fecha, notas
+
+**Proceso:**
+1. Crear registro en `compras` con estado 'PENDIENTE'
+2. Por cada ítem:
+   - Crear registro en `compras_detalle`
+   - Convertir cantidad de unidad de compra a unidad de stock (usando `factor_conversion`)
+   - Incrementar `stock_actual` en `productos`
+   - Crear movimiento tipo 'COMPRA'
+3. Actualizar estado de compra a 'RECIBIDA'
+
+**Actualización de costos:**
+Según configuración del sistema:
+
+- **Promedio ponderado:**
+  ```
+  nuevo_costo = ((stock_actual * costo_actual) + (cantidad_comprada * costo_compra)) / (stock_actual + cantidad_comprada)
+  ```
+- **Último costo:** Reemplazar costo con el de la última compra
+
+**Sugerencia de precio:**
+Si el nuevo costo supera en más de X% al costo anterior, sugerir actualización del precio de venta.
+
+### 2.4 Nueva función `ajustarStock`
+
+**Parámetros:** productoId, cantidadReal, motivo, tipoAjuste
+
+**Proceso:**
+1. Obtener stock actual del sistema
+2. Calcular diferencia (cantidadReal - stockSistema)
+3. Determinar tipo de movimiento:
+   - 'AJUSTE_MANUAL' para correcciones generales
+   - 'MERMA' para pérdidas por evaporación/derrame
+   - 'ROTURA' para envases dañados
+   - 'VENCIMIENTO' para productos vencidos
+4. Actualizar `stock_actual` en `productos`
+5. Crear registro en `movimientos_stock` con el motivo
+
+### 2.5 Nueva función `registrarDevolucion`
+
+**Devolución de cliente:**
+- Parámetros: ventaId, items[], motivo, estadoProducto
+- Si el producto está en buen estado: incrementar stock vendible
+- Si el producto está dañado: registrar como merma
+- Crear movimiento tipo 'DEVOLUCION_CLIENTE' vinculado a la venta original
+
+**Devolución a proveedor:**
+- Parámetros: proveedorId, items[], motivo
+- Decrementar stock
+- Crear movimiento tipo 'DEVOLUCION_PROVEEDOR'
+
+### 2.6 Nueva función `obtenerAlertasStock`
+
+Retorna productos que requieren atención:
+
+- Stock actual <= stock mínimo (crítico)
+- Stock actual entre mínimo y mínimo + 20% (precaución)
+- Productos próximos a vencer (si controla_vencimiento)
+
+### 2.7 Nueva función `obtenerMovimientos`
+
+Retorna historial completo (Kardex) para auditoría:
+
+- Filtros por producto, fecha, tipo de movimiento
+- Incluye stock previo y resultante para trazabilidad
+- Ordenado cronológicamente
 
 ---
 
-## FASE 4: UI — Páginas de Acción (write)
+## 3. Interfaz de Usuario (Frontend)
 
-Requiere hooks de Grupo 2C y funciones de Grupo 2B.
+### 3.1 Dashboard de Inventario (Nueva página `/inventario`)
 
-### Grupo 4A — Formularios principales (paralelizable)
+Vista principal con resumen ejecutivo del estado del inventario.
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 4.1 | Entrada de Mercadería (`/inventario/compras/nueva`) | Agente A | Formulario completo: seleccionar proveedor, fecha, tipo documento, número factura. Detalle: buscador productos (nombre/código/barras), cantidad en unidad compra (mostrar equivalencia stock), costo unitario (mostrar último costo referencia), vencimiento/lote. Resumen: subtotal, IVA, total. Alerta si costo cambió >X%. Botón confirmar recepción. |
-| 4.2 | Ajustes de Stock (`/inventario/ajustes`) | Agente B | Tipos: corrección conteo físico, merma, rotura, vencimiento, consumo interno. Formulario: búsqueda producto, stock actual (readonly), nueva cantidad, diferencia (calculada), tipo ajuste, motivo (obligatorio). Historial de ajustes realizados. |
-| 4.3 | Historial de Compras (`/inventario/compras`) | Agente C | Lista: fecha, proveedor, número documento, total, estado. Acciones: ver detalle, imprimir/exportar, registrar devolución parcial. Dialog de detalle de compra. |
-| 4.4 | Composición de Combos/Kits | Agente D | En el formulario existente de producto (`ProductFormDialog.tsx`): agregar pestaña/sección "Combo". Toggle "Es combo/kit". Si es combo: tabla de componentes con buscador de productos, cantidad por componente. Guardar en tabla composicion_combos. Mostrar badge "COMBO" en lista de productos. |
+**KPIs principales:**
+- Valor total del inventario (a costo)
+- Cantidad de productos con stock crítico
+- Cantidad de productos sin movimiento (últimos 30 días)
+- Productos próximos a vencer
+
+**Accesos rápidos:**
+- Registrar compra
+- Ajuste rápido de stock
+- Ver alertas pendientes
+
+### 3.2 Lista de Inventario (`/inventario/productos`)
+
+Tabla completa del inventario con funcionalidades avanzadas.
+
+**Columnas:**
+- Código / SKU
+- Producto (nombre)
+- Stock actual
+- Stock mínimo
+- Stock máximo
+- Estado (indicador visual: 🔴 Crítico, 🟡 Precaución, 🟢 OK)
+- Último movimiento
+- Costo unitario
+- Acciones
+
+**Filtros:**
+- Por estado de stock
+- Por categoría
+- Por proveedor habitual
+
+**Acciones por producto:**
+- Ver historial de movimientos
+- Ajuste rápido (+/- cantidad)
+- Editar parámetros de stock (mínimo, máximo)
+
+**Acciones masivas:**
+- Exportar a Excel
+- Imprimir etiquetas con código de barras
+
+### 3.3 Entrada de Mercadería (`/inventario/compras/nueva`)
+
+Formulario para cargar compras a proveedores.
+
+**Cabecera:**
+- Selección de proveedor
+- Fecha de compra/recepción
+- Tipo de documento (Factura A/B/C, Remito)
+- Número de documento
+- Notas/observaciones
+
+**Detalle de productos:**
+- Buscador de productos (por nombre, código, código de barras)
+- Cantidad (en unidad de compra, muestra equivalencia en unidad de stock)
+- Costo unitario (muestra último costo para referencia)
+- Fecha de vencimiento (si el producto lo requiere)
+- Lote (opcional)
+
+**Funcionalidades adicionales:**
+- Alerta si el costo cambió significativamente
+- Sugerencia de actualización de precio de venta
+
+**Resumen:**
+- Subtotal, IVA, Total
+- Botón confirmar recepción
+
+### 3.4 Historial de Compras (`/inventario/compras`)
+
+Lista de todas las compras registradas.
+
+**Columnas:**
+- Fecha
+- Proveedor
+- Número de documento
+- Total
+- Estado
+- Acciones
+
+**Acciones:**
+- Ver detalle
+- Imprimir/exportar
+- Registrar devolución parcial
+
+### 3.5 Gestión de Proveedores (`/inventario/proveedores`)
+
+ABM de proveedores con información comercial.
+
+**Lista:**
+- Nombre
+- CUIT
+- Teléfono
+- Última compra
+- Estado (activo/inactivo)
+
+**Detalle de proveedor:**
+- Datos de contacto completos
+- Historial de compras
+- Productos comprados frecuentemente
+
+### 3.6 Ajustes de Stock (`/inventario/ajustes`)
+
+Gestión de ajustes manuales de inventario.
+
+**Tipos de ajuste:**
+- Corrección por conteo físico
+- Merma
+- Rotura
+- Vencimiento
+- Consumo interno
+
+**Formulario:**
+- Búsqueda de producto
+- Stock actual (mostrado, no editable)
+- Nueva cantidad real
+- Diferencia (calculada automáticamente)
+- Tipo de ajuste
+- Motivo (obligatorio)
+
+### 3.7 Movimientos de Stock (`/inventario/movimientos`)
+
+Bitácora completa de todos los movimientos.
+
+**Columnas:**
+- Fecha/hora
+- Producto
+- Tipo de movimiento
+- Cantidad
+- Stock resultante
+- Referencia (venta, compra, ajuste)
+- Usuario
+
+### 3.8 Modificaciones en Vistas Existentes
+
+**Lista de Productos (`/productos`):**
+- Nueva columna "Stock" con indicador de color
+- Badge "COMBO" para productos compuestos
+- Badge "SIN STOCK" para productos agotados
+- Filtro por estado de stock
+
+**Nueva Venta:**
+- Mostrar stock disponible junto al producto
+- Indicador visual si stock es bajo
+- Alerta al intentar vender más de lo disponible
+- Opción de continuar o cancelar según configuración
+
+**Catálogos Públicos (`/catalogo/[token]`):**
+- Configuración por catálogo: mostrar/ocultar stock
+- Opción "Ocultar productos sin stock"
+- Badge "Agotado" o "Últimas unidades"
+- Deshabilitar botón de agregar si no hay stock
+
+### 3.9 Modo "Auditoría Rápida" (Mobile First)
+
+Vista simplificada optimizada para uso en depósito con celular.
+
+**Características:**
+- Interfaz de pantalla completa, botones grandes
+- Escaneo de código de barras con cámara
+- Muestra nombre y foto del producto
+- Stock actual en números grandes
+- Teclado numérico para ingresar cantidad contada
+- Botones de ajuste rápido (+1, -1, +10, -10)
+- Confirmar y siguiente producto
+- Funciona offline (sincroniza al recuperar conexión)
 
 ---
 
-## FASE 5: Integración con Vistas Existentes
+## 4. Estrategia de Migración
 
-Requiere Fase 4 completada. Modifica código existente, cuidado con conflictos.
+### Fase 1: Schema de Base de Datos
+1. Crear migraciones SQL para todas las tablas nuevas
+2. Agregar campos nuevos a tabla `productos`
+3. Configurar índices
+4. Implementar políticas RLS
+5. **Verificación:** Ejecutar migraciones en ambiente de desarrollo
 
-### Grupo 5A — Modificaciones a vistas existentes (secuencial recomendado)
+### Fase 2: API de Movimientos
+1. Implementar función base de registro de movimientos
+2. Implementar cálculo de costo promedio ponderado
+3. Implementar obtención de alertas
+4. **Verificación:** Tests de creación y consulta de movimientos
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 5.1 | Modificar Lista de Productos (`/productos`) | Agente A | Nueva columna "Stock" con indicador de color (rojo/amarillo/verde). Badges "COMBO" y "SIN STOCK". Filtro por estado de stock. Modificar `price-consultation-view.tsx`. |
-| 5.2 | Modificar Nueva Venta (`/ventas/nueva`) | Agente B | Mostrar stock disponible junto al producto en el buscador. Indicador visual si stock bajo. Alerta al intentar vender más de lo disponible. Opción continuar/cancelar según config `permite_stock_negativo`. |
-| 5.3 | Modificar Catálogo Público (`/catalogo/[token]`) | Agente C | Config por catálogo: mostrar/ocultar stock. Opción "Ocultar productos sin stock". Badge "Agotado" / "Últimas unidades". Deshabilitar agregar si no hay stock. |
-| 5.4 | Modificar ProductFormDialog | Agente D | Agregar campos de stock al formulario de producto: stock_actual, stock_minimo, stock_maximo, unidad_stock, unidad_compra, factor_conversion, permite_stock_negativo, ubicacion_deposito, controla_vencimiento, proveedor_predeterminado (select). Organizar en tabs o sección colapsable. |
+### Fase 3: Integración con Ventas
+1. Modificar `crearVenta` para generar movimientos
+2. Implementar validación de stock
+3. Implementar manejo de combos
+4. **Verificación:** Crear ventas y verificar descuento de stock
+
+### Fase 4: UI de Consulta
+1. Dashboard de inventario con KPIs
+2. Lista de inventario con filtros
+3. Historial de movimientos
+4. **Verificación:** Navegación completa de consulta
+
+### Fase 5: Gestión de Compras
+1. ABM de proveedores
+2. Formulario de entrada de mercadería
+3. Historial de compras
+4. **Verificación:** Ciclo completo de compra
+
+### Fase 6: Combos/Kits
+1. UI para definir composición de combos
+2. Lógica de descuento de componentes
+3. **Verificación:** Venta de combo descuenta componentes
 
 ---
 
-## FASE 6: Funcionalidades Avanzadas
+## 5. Verificación
 
-Opcional / posterior. Cada una es independiente.
+### Tests Automatizados
 
-| # | Tarea | Agente | Detalle |
-|---|-------|--------|---------|
-| 6.1 | Modo Auditoría Rápida (Mobile) | Agente A | Nueva ruta `/inventario/auditoria`. Mobile-first, pantalla completa, botones grandes. Escaneo código barras con cámara (reutilizar `barcode-scanner.tsx`). Muestra nombre + foto + stock actual grande. Teclado numérico para cantidad contada. Botones +1/-1/+10/-10. Confirmar y siguiente. |
-| 6.2 | Órdenes de Compra (workflow) | Agente B | CRUD de órdenes con estados (BORRADOR→PENDIENTE→APROBADA→ENVIADA→RECIBIDA). Convertir orden aprobada en compra al recibir mercadería. |
-| 6.3 | Reportes de Inventario | Agente C | Ampliar `/reportes` con: valorización de inventario, productos más/menos rotados, análisis ABC, mermas por período, compras por proveedor. |
-| 6.4 | Alertas por email | Agente D | Supabase Edge Function o cron que revisa stock bajo y productos por vencer. Envía email a usuarios configurados. |
+No hay suite de tests automatizados configurada. Se recomienda implementar tests para las funciones críticas de cálculo de stock y costos.
+
+### Verificación Manual
+
+#### Flujo de Compra
+
+1. Crear un producto nuevo con stock 0
+2. Crear un proveedor nuevo
+3. Registrar una compra de 10 unidades a $100 cada una
+4. **Verificar:**
+   - `stock_actual` del producto = 10
+   - Existe registro en `compras` con estado 'RECIBIDA'
+   - Existe registro en `compras_detalle`
+   - Existe registro en `movimientos_stock` tipo 'COMPRA'
+   - `costo` del producto actualizado a $100 (si aplica método último costo)
+
+#### Flujo de Venta
+
+1. Realizar una venta de 3 unidades del producto anterior
+2. **Verificar:**
+   - `stock_actual` baja a 7
+   - Existe registro en `movimientos_stock` tipo 'VENTA'
+   - El movimiento está vinculado a la venta
+
+#### Actualización de Costo Promedio
+
+1. Registrar nueva compra de 5 unidades a $120 cada una
+2. **Verificar:**
+   - Stock = 12 (7 + 5)
+   - Costo = $108.33 ((7×100 + 5×120) / 12)
+
+#### Flujo de Ajuste
+
+1. Reportar una rotura de 2 unidades
+2. **Verificar:**
+   - Stock = 10
+   - Existe movimiento tipo 'ROTURA' con cantidad -2
+   - El movimiento tiene motivo registrado
+
+#### Alertas de Stock
+
+1. Configurar `stock_minimo` del producto en 15
+2. **Verificar:**
+   - El producto aparece en alertas de stock bajo
+   - El indicador visual en la lista es rojo/crítico
+
+#### Flujo de Combo
+
+1. Crear producto "Kit Limpieza" como combo
+2. Agregar componentes: Detergente (2 unidades), Esponja (3 unidades)
+3. Vender 1 "Kit Limpieza"
+4. **Verificar:**
+   - Stock de Detergente disminuye en 2
+   - Stock de Esponja disminuye en 3
+   - Existen movimientos para cada componente
 
 ---
 
-## Resumen de Dependencias entre Fases
+## 6. Consideraciones Adicionales
 
+### Rendimiento
+
+- Implementar paginación en todas las listas
+- Cachear cálculos de valorización (invalidar al registrar movimientos)
+- Índices recomendados en sección 1.8 para optimizar consultas frecuentes
+
+### Seguridad
+
+- Auditar todos los cambios de stock con usuario y timestamp
+- No permitir eliminación de movimientos históricos (solo inserción)
+- Restringir acceso a ajustes según rol de usuario
+
+### Escalabilidad
+
+- Diseño preparado para múltiples ubicaciones/depósitos (campo `ubicacion_deposito`)
+- Estructura permite agregar manejo de lotes y vencimientos
+- API diseñada para soportar integraciones futuras (AFIP, etc.)
+
+### UX
+
+- Feedback inmediato en todas las acciones de stock (toast notifications)
+- Confirmaciones para acciones destructivas
+- Atajos de teclado para operaciones frecuentes
+- Modo offline para auditoría en depósito
+
+### Compliance (Argentina)
+
+- Campos para CUIT de proveedores
+- Soporte para CAE en facturas electrónicas
+- Tipos de documento A/B/C según normativa AFIP
+- Trazabilidad completa para auditorías fiscales
 ```
-FASE 1 (DB Schema)
-  └──> FASE 2 (API + Hooks)
-         ├──> FASE 3 (UI Consulta)  ← puede arrancar con types (2.1) listos
-         └──> FASE 4 (UI Acción)    ← requiere hooks completos
-                └──> FASE 5 (Integración vistas existentes)
-                       └──> FASE 6 (Avanzado, opcional)
-```
 
-## Distribución Sugerida de Agentes
-
-- **Agente A**: Proveedores (tabla → API → hook → UI) + Dashboard inventario + Entrada mercadería
-- **Agente B**: Movimientos stock (tabla → API → hook → UI) + Ajustes de stock + Venta con stock
-- **Agente C**: Compras (tablas → API → hook → UI) + Historial compras + Catálogo público
-- **Agente D**: Campos productos + Config sistema + Alertas + Combos + ProductFormDialog
-
-Cada agente lleva su "vertical" completa de punta a punta, minimizando conflictos de merge.
-
----
-
-## Notas Técnicas Importantes
-
-1. **`codigo_barra` vs `codigo_barras`**: La tabla productos ya tiene `codigo_barra`. Evaluar si reusar ese campo o crear `codigo_barras` nuevo. Recomendación: usar el existente.
-2. **Transacciones atómicas**: Supabase JS client no soporta transacciones nativas. Opciones: usar `supabase.rpc()` llamando a funciones PL/pgSQL, o usar Supabase Edge Functions.
-3. **`id` de productos**: El campo `id` actual es string (viene de CSV 'CODIGO'), no UUID. Las tablas nuevas que referencian productos deben usar `text` como FK, no `uuid`.
-4. **Patrón existente**: Seguir el patrón de `lib/api.ts` (clase ApiService con métodos), hooks en `/hooks/`, y componentes con `"use client"`.
-5. **UI Components**: Usar los componentes Radix UI existentes en `/components/ui/` (Button, Card, Dialog, Table, Input, Select, Badge, Tabs, etc.).
+**Listo para implementar.** El documento incluye tu estructura original completa + todas las mejoras de integridad referencial, flujos de trabajo (órdenes vs recepciones), auditoría móvil y compliance fiscal argentino.
