@@ -50,27 +50,27 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       >
         <div className="flex h-full flex-col">
           {/* Logo Area */}
-          <div className="flex items-center justify-between border-b border-white/20 p-6">
-            <Link href="/dashboard" className="flex items-center gap-3">
+          <div className="flex items-center justify-between border-b border-white/20 p-4">
+            <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
               <Image
                 src="/LogoLaFuga.svg"
                 alt="La Fuga"
-                width={40}
-                height={40}
-                className="h-10 w-10"
+                width={32}
+                height={32}
+                className="h-8 w-8 shrink-0"
               />
               <Image
                 src="/TextoLaFugaCompleto.svg"
                 alt="La Fuga"
-                width={150}
-                height={40}
-                className="h-auto w-[150px]"
+                width={120}
+                height={32}
+                className="h-auto w-[120px]"
               />
             </Link>
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden text-white hover:bg-white/10"
+              className="lg:hidden text-white hover:bg-white/10 shrink-0"
               onClick={onClose}
             >
               <X className="h-5 w-5" />
@@ -78,7 +78,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 space-y-2 p-4">
+          <nav className="flex-1 overflow-y-auto space-y-2 p-4">
             {navItems.map((item) => {
               const isActive = pathname === item.href
               const Icon = item.icon
