@@ -32,8 +32,7 @@ BEGIN
   FROM jsonb_array_elements(v_catalogo.productos) WITH ORDINALITY AS cp(item, ordinality)
   JOIN productos p
     ON p.id = cp.item ->> 'producto_id'
-  WHERE COALESCE(p.estado, 'activo') <> 'eliminado'
-    AND (p.stock_actual IS NULL OR p.stock_actual > 0);
+  WHERE COALESCE(p.estado, 'activo') <> 'eliminado';
 
   RETURN jsonb_build_object(
     'catalogo', to_jsonb(v_catalogo),

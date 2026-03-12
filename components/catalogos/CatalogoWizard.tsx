@@ -102,7 +102,6 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
   const loadCatalogoInBuilder = builder.loadCatalogo;
   const productosCount = builder.productosCount;
   const productosVisiblesCatalogo = filtrarProductosCatalogoDisponibles(selectedProductosData);
-  const productosSinStockCount = selectedProductosData.length - productosVisiblesCatalogo.length;
 
   useEffect(() => {
     const searchProducts = async () => {
@@ -194,7 +193,7 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
     }
 
     if (productosVisiblesCatalogo.length === 0) {
-      toast.error("El catálogo no tiene productos disponibles con stock");
+      toast.error("El catálogo no tiene productos válidos para publicar");
       return;
     }
 
@@ -379,7 +378,7 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
           id="catalogo-print-template"
           titulo={builder.state.titulo}
           clienteNombre={builder.state.clienteNombre}
-          productos={productosVisiblesCatalogo}
+          productos={selectedProductosData}
           camposVisibles={builder.state.camposVisibles}
           tipoPrecio={builder.state.tipoPrecio}
           descuentoGlobal={builder.state.descuentoGlobal}
@@ -450,15 +449,9 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
                     </p>
                   </div>
                   <span className="text-sm text-gray-500">
-                    {productosVisiblesCatalogo.length} visible{productosVisiblesCatalogo.length !== 1 ? "s" : ""} de {builder.productosCount}
+                    {builder.productosCount} incluido{builder.productosCount !== 1 ? "s" : ""}
                   </span>
                 </div>
-
-                {productosSinStockCount > 0 && (
-                  <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                    {productosSinStockCount} producto{productosSinStockCount !== 1 ? "s" : ""} sin stock no se mostrará{productosSinStockCount !== 1 ? "n" : ""} en el catálogo público.
-                  </p>
-                )}
 
                 <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {selectedProductosData.map((producto) => (
@@ -662,7 +655,7 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
             <div className="mt-6">
               <Label className="mb-2 block">Vista previa</Label>
               <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 p-4 sm:grid-cols-3">
-                {productosVisiblesCatalogo.slice(0, 3).map((producto) => (
+                {selectedProductosData.slice(0, 3).map((producto) => (
                   <CatalogoProductCard
                     key={producto.id}
                     producto={producto}
@@ -734,22 +727,16 @@ export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
                 <p className="font-medium text-gray-900">{formatearDiasValidez(builder.state.duracionDias)}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-500">Productos visibles</p>
-                <p className="font-medium text-gray-900">{productosVisiblesCatalogo.length}</p>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Productos</p>
+                <p className="font-medium text-gray-900">{builder.productosCount}</p>
               </div>
             </div>
-
-            {productosSinStockCount > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                {productosSinStockCount} producto{productosSinStockCount !== 1 ? "s" : ""} sin stock quedará{productosSinStockCount !== 1 ? "n" : ""} oculto{productosSinStockCount !== 1 ? "s" : ""} en el catálogo.
-              </div>
-            )}
 
             <div className="max-h-[400px] overflow-y-auto rounded-lg border">
               <CatalogoPreview
                 titulo={builder.state.titulo}
                 clienteNombre={builder.state.clienteNombre || "Cliente"}
-                productos={productosVisiblesCatalogo}
+                productos={selectedProductosData}
                 camposVisibles={builder.state.camposVisibles}
                 tipoPrecio={builder.state.tipoPrecio}
                 descuentoGlobal={builder.state.descuentoGlobal}

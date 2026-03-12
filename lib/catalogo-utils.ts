@@ -87,11 +87,7 @@ export function expandirProductosCatalogo(
 export function productoCatalogoEstaDisponible(
   producto: Pick<Producto, "stock_actual" | "estado">
 ): boolean {
-  if (producto.estado === "eliminado") {
-    return false;
-  }
-
-  return producto.stock_actual === undefined || producto.stock_actual === null || producto.stock_actual > 0;
+  return producto.estado !== "eliminado";
 }
 
 export function filtrarProductosCatalogoDisponibles<T extends Pick<Producto, "stock_actual" | "estado">>(
