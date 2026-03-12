@@ -35,7 +35,7 @@ export interface VentaExport {
   total: number;
   metodo_pago: string;
   cliente_nombre: string;
-  productos: any[];
+  productos: unknown[];
   subtotal: number | null;
   descuento_global: number;
   descuento_global_porcentaje: number;
@@ -53,7 +53,7 @@ export async function exportFromSupabase(): Promise<ExportData> {
   const PAGE_SIZE = 1000;
 
   // Paginar productos (Supabase limita a 1000 por query)
-  const allProductos: any[] = [];
+  const allProductos: ProductoExport[] = [];
   let from = 0;
   while (true) {
     const { data: batch, error: prodError } = await supabase
@@ -73,7 +73,7 @@ export async function exportFromSupabase(): Promise<ExportData> {
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-  const allVentas: any[] = [];
+  const allVentas: VentaExport[] = [];
   from = 0;
   while (true) {
     const { data: batch, error: ventasError } = await supabase

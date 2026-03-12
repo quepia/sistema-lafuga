@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { Search, Package, Edit2, X, Check, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2, Info, Plus, RefreshCw } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Search, Edit2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Info, Plus, RefreshCw } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,12 +46,6 @@ export default function PriceConsultationView() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [offset, setOffset] = useState(0)
   const [showDeleted, setShowDeleted] = useState(false)
-  const [isMounted, setIsMounted] = useState(false)
-
-  // Evitar hydration mismatch en componentes interactivos
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
 
   // Local state for optimistic updates
   const [localProductos, setLocalProductos] = useState<Producto[] | null>(null)
@@ -65,7 +58,7 @@ export default function PriceConsultationView() {
   // Estado para el modal de eliminación
   const [deletingProduct, setDeletingProduct] = useState<Producto | null>(null)
 
-  const { categorias, loading: loadingCategorias } = useCategorias()
+  const { categorias } = useCategorias()
 
   // Debounce search input
   useEffect(() => {
@@ -75,11 +68,6 @@ export default function PriceConsultationView() {
     }, 300)
     return () => clearTimeout(timer)
   }, [searchInput])
-
-  // Reset offset when filters change
-  useEffect(() => {
-    setOffset(0)
-  }, [selectedCategory, showDeleted])
 
   // Use SWR hook for products
   const {
@@ -101,11 +89,16 @@ export default function PriceConsultationView() {
   const productos = localProductos ?? swrProductos
   const total = localTotal ?? swrTotal
 
-  // Reset local state when SWR data changes (after revalidation)
-  useEffect(() => {
-    setLocalProductos(null)
-    setLocalTotal(null)
-  }, [swrProductos, swrTotal])
+  const syncWithServer = async () => {
+    try {
+      await refetch()
+    } catch (syncError) {
+      console.error("Error revalidando productos:", syncError)
+    } finally {
+      setLocalProductos(null)
+      setLocalTotal(null)
+    }
+  }
 
   // Función para eliminar producto (soft delete)
   const handleDelete = async (motivo: string) => {
@@ -121,7 +114,7 @@ export default function PriceConsultationView() {
       toast.success(`Producto "${deletingProduct.nombre}" eliminado correctamente`)
 
       // Revalidate in background
-      refetch()
+      void syncWithServer()
     } catch (err) {
       // Reset local state on error
       setLocalProductos(null)
@@ -183,28 +176,32 @@ export default function PriceConsultationView() {
                 <Checkbox
                   id="show-deleted"
                   checked={showDeleted}
-                  onCheckedChange={(c) => setShowDeleted(c === true)}
+                  onCheckedChange={(checked) => {
+                    setShowDeleted(checked === true)
+                    setOffset(0)
+                  }}
                 />
                 <Label htmlFor="show-deleted" className="text-sm cursor-pointer select-none">Mostrar eliminados</Label>
               </div>
-              {/* Select de Categorías (Client-only para evitar hydration mismatch) */}
-              {isMounted ? (
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                  <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
-                    <SelectValue placeholder="Categoría" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    {categorias.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="w-full sm:w-[180px] h-10 sm:h-12 bg-white border rounded-md" /> /* Placeholder para evitar salto */
-              )}
+              <Select
+                value={selectedCategory}
+                onValueChange={(value) => {
+                  setSelectedCategory(value)
+                  setOffset(0)
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {categorias.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -466,7 +463,7 @@ export default function PriceConsultationView() {
             setLocalTotal(prev => (prev ?? total) + 1)
           }
           // Revalidate in background
-          refetch()
+          void syncWithServer()
         }}
       />
 

@@ -59,7 +59,7 @@ export function AjusteStockForm({ onSuccess }: AjusteStockFormProps) {
 
   // Watch cantidad_real to calculate difference
   const cantidadReal = form.watch("cantidad_real")
-  const stockActual = (producto as any)?.stock_actual ?? 0
+  const stockActual = producto?.stock_actual ?? 0
   const diferencia = producto ? cantidadReal - stockActual : 0
 
   const buscarProducto = async () => {
@@ -151,11 +151,12 @@ export function AjusteStockForm({ onSuccess }: AjusteStockFormProps) {
 
       if (onSuccess) onSuccess()
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Ocurrió un error inesperado."
       toast({
         variant: "destructive",
         title: "Error al ajustar",
-        description: error.message || "Ocurrió un error inesperado.",
+        description: errorMessage,
       })
     } finally {
       setLoading(false)

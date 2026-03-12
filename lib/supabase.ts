@@ -1,5 +1,4 @@
 import { createBrowserClient } from '@supabase/ssr';
-import { Database } from './database.types'; // Assuming we strictly typed it, but for now generic is fine?
 // Actually we don't have database.types generated probably.
 // We'll stick to generic checking.
 
@@ -260,13 +259,15 @@ export interface CamposVisibles {
   unidad: boolean;
 }
 
+export type CatalogoTipoPrecio = 'mayor' | 'menor';
+
 /**
  * Product entry in a catalog with individual adjustments
  */
 export interface CatalogoProducto {
   producto_id: string;
-  descuento_individual: number; // Additional percentage on top of global
-  precio_personalizado: number | null; // Manual price override
+  descuento_individual: number; // Positive applies a discount, negative applies a surcharge
+  precio_personalizado: number | null; // Final manual price override
 }
 
 /**
@@ -278,6 +279,7 @@ export interface Catalogo {
   titulo: string;
   public_token: string;
   expires_at: string;
+  tipo_precio: CatalogoTipoPrecio;
   descuento_global: number;
   campos_visibles: CamposVisibles;
   productos: CatalogoProducto[];
@@ -293,6 +295,8 @@ export interface Catalogo {
 export interface CatalogoInsert {
   cliente_nombre: string;
   titulo?: string;
+  tipo_precio?: CatalogoTipoPrecio;
+  expires_at?: string;
   descuento_global?: number;
   campos_visibles?: Partial<CamposVisibles>;
   productos: CatalogoProducto[];
@@ -305,7 +309,7 @@ export interface CatalogoInsert {
 export interface ProductoCatalogo extends Producto {
   descuento_individual: number;
   precio_personalizado: number | null;
-  precio_final: number; // Calculated: precio_mayor * (1 - descuento_global/100) * (1 - descuento_individual/100)
+  precio_final: number; // Final price after price list selection, manual overrides, and adjustments
 }
 
 /**
@@ -508,4 +512,3 @@ export interface ProveedorUpdate {
   notas?: string | null;
   activo?: boolean;
 }
-

@@ -293,7 +293,7 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
         }
     }
 
-    const handleInputChange = (field: keyof ProductoInsert, value: any) => {
+    const handleInputChange = <K extends keyof ProductoInsert>(field: K, value: ProductoInsert[K]) => {
         setFormData(prev => ({ ...prev, [field]: value }))
     }
 

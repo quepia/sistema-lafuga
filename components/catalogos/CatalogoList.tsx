@@ -3,9 +3,9 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useCatalogos } from "@/hooks/use-catalogos"
-import { api, Catalogo } from "@/lib/api"
+import { api } from "@/lib/api"
+import { obtenerEtiquetaTipoPrecio, obtenerTextoAjustePorcentaje } from "@/lib/catalogo-utils"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -82,7 +82,7 @@ export function CatalogoList() {
     setRenewingId(id);
     try {
       await api.renovarLinkCatalogo(id);
-      toast.success("Link renovado por 7 días más");
+      toast.success("Link renovado por 10 dias mas");
       mutate();
     } catch (error) {
       console.error("Error renewing link:", error);
@@ -105,7 +105,7 @@ export function CatalogoList() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Catálogos Mayoristas</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Catalogos personalizados</h1>
           <p className="text-sm text-gray-500 mt-1">
             {total} catálogo{total !== 1 ? "s" : ""} activo{total !== 1 ? "s" : ""}
           </p>
@@ -126,8 +126,9 @@ export function CatalogoList() {
               <TableRow>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Título</TableHead>
+                <TableHead className="text-center">Lista</TableHead>
                 <TableHead className="text-center">Productos</TableHead>
-                <TableHead className="text-center">Descuento</TableHead>
+                <TableHead className="text-center">Ajuste</TableHead>
                 <TableHead>Creado</TableHead>
                 <TableHead>Expira</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
@@ -149,15 +150,20 @@ export function CatalogoList() {
                     </TableCell>
                     <TableCell className="text-gray-600">{catalogo.titulo}</TableCell>
                     <TableCell className="text-center">
+                      <span className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                        {obtenerEtiquetaTipoPrecio(catalogo.tipo_precio || "mayor")}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Package className="w-4 h-4 text-gray-400" />
                         <span>{catalogo.productos.length}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-center">
-                      {catalogo.descuento_global > 0 ? (
-                        <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
-                          {catalogo.descuento_global}%
+                      {catalogo.descuento_global !== 0 ? (
+                        <span className={`inline-block rounded px-2 py-0.5 text-xs ${catalogo.descuento_global > 0 ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+                          {obtenerTextoAjustePorcentaje(catalogo.descuento_global)}
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>

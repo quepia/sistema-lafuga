@@ -1,13 +1,19 @@
 "use client"
 
 import Image from "next/image"
-import { Producto, ProductoCatalogo, CamposVisibles } from "@/lib/supabase"
-import { formatearPrecio, calcularPrecioFinal } from "@/lib/pdf-utils"
+import { Producto, ProductoCatalogo, CamposVisibles, CatalogoTipoPrecio } from "@/lib/supabase"
+import { formatearPrecio } from "@/lib/pdf-utils"
 import { cn } from "@/lib/utils"
+import {
+  calcularPrecioCatalogoFinal,
+  obtenerPrecioBaseCatalogo,
+  obtenerTextoAjustePorcentaje,
+} from "@/lib/catalogo-utils"
 
 interface CatalogoProductCardProps {
   producto: Producto | ProductoCatalogo;
   camposVisibles: CamposVisibles;
+  tipoPrecio?: CatalogoTipoPrecio;
   descuentoGlobal?: number;
   descuentoIndividual?: number;
   precioPersonalizado?: number | null;
@@ -15,11 +21,13 @@ interface CatalogoProductCardProps {
   isSelected?: boolean;
   onToggle?: (id: string) => void;
   compact?: boolean;
+  selectionOrder?: number;
 }
 
 export function CatalogoProductCard({
   producto,
   camposVisibles,
+  tipoPrecio = "mayor",
   descuentoGlobal = 0,
   descuentoIndividual = 0,
   precioPersonalizado = null,
@@ -27,13 +35,30 @@ export function CatalogoProductCard({
   isSelected = false,
   onToggle,
   compact = false,
+  selectionOrder,
 }: CatalogoProductCardProps) {
-  const precioBase = precioPersonalizado ?? producto.precio_mayor;
+  const descuentoConfigurado = 'descuento_individual' in producto
+    ? producto.descuento_individual
+    : descuentoIndividual;
+
+  const precioManualActivo = 'precio_personalizado' in producto
+    ? producto.precio_personalizado
+    : precioPersonalizado;
+
+  const precioBase = obtenerPrecioBaseCatalogo(producto, tipoPrecio);
   const precioFinal = 'precio_final' in producto
     ? producto.precio_final
-    : calcularPrecioFinal(precioBase, descuentoGlobal, descuentoIndividual);
+    : calcularPrecioCatalogoFinal({
+      producto,
+      tipoPrecio,
+      descuentoGlobal,
+      descuentoIndividual: descuentoConfigurado,
+      precioPersonalizado: precioManualActivo,
+    });
 
-  const tieneDescuento = descuentoGlobal > 0 || descuentoIndividual > 0;
+  const ajusteTotal = descuentoGlobal + descuentoConfigurado;
+  const tieneAjuste = precioManualActivo !== null || ajusteTotal !== 0;
+  const ajusteEsDescuento = ajusteTotal > 0;
 
   return (
     <div
@@ -71,6 +96,14 @@ export function CatalogoProductCard({
                 />
               </svg>
             )}
+          </div>
+        </div>
+      )}
+
+      {showCheckbox && isSelected && selectionOrder !== undefined && selectionOrder >= 0 && (
+        <div className="absolute top-2 left-2 z-10">
+          <div className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+            {selectionOrder + 1}
           </div>
         </div>
       )}
@@ -148,9 +181,9 @@ export function CatalogoProductCard({
         {/* Price */}
         {camposVisibles.precio && (
           <div className="pt-1">
-            {tieneDescuento && (
+            {tieneAjuste && (
               <p className="text-xs text-gray-400 line-through">
-                {formatearPrecio(producto.precio_mayor)}
+                {formatearPrecio(precioBase)}
               </p>
             )}
             <p className={cn(
@@ -159,11 +192,18 @@ export function CatalogoProductCard({
             )}>
               {formatearPrecio(precioFinal)}
             </p>
-            {tieneDescuento && (
-              <span className="inline-block bg-green-100 text-green-700 text-xs px-1.5 py-0.5 rounded">
-                -{descuentoGlobal + descuentoIndividual}%
+            {precioManualActivo !== null ? (
+              <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
+                Precio manual
               </span>
-            )}
+            ) : tieneAjuste ? (
+              <span className={cn(
+                "inline-block rounded px-1.5 py-0.5 text-xs",
+                ajusteEsDescuento ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
+              )}>
+                {obtenerTextoAjustePorcentaje(ajusteTotal)}
+              </span>
+            ) : null}
           </div>
         )}
       </div>

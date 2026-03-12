@@ -395,38 +395,46 @@ export default function NuevaVentaPage() {
               {/* Resultados de busqueda */}
               {searchResults.length > 0 && (
                 <div className="mt-4 border rounded-lg divide-y max-h-64 overflow-auto">
-                  {searchResults.map((producto) => (
-                    <div
-                      key={producto.id}
-                      className="p-3 hover:bg-muted cursor-pointer flex justify-between items-center"
-                      onClick={() => agregarAlCarrito(producto)}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{producto.nombre}</p>
-                          {(producto as any).stock_actual !== undefined && (
-                            <Badge
-                              variant={((producto as any).stock_actual <= ((producto as any).stock_minimo || 0) || (producto as any).stock_actual === 0) ? "destructive" : "secondary"}
-                              className="text-[10px] h-5 px-1"
-                            >
-                              {(producto as any).stock_actual <= 0 ? "Sin Stock" : `Stock: ${(producto as any).stock_actual}`}
-                            </Badge>
-                          )}
+                  {searchResults.map((producto) => {
+                    const stockActual = producto.stock_actual
+                    const stockMinimo = producto.stock_minimo ?? 0
+                    const stockBajoMinimo =
+                      stockActual !== undefined &&
+                      (stockActual <= stockMinimo || stockActual === 0)
+
+                    return (
+                      <div
+                        key={producto.id}
+                        className="p-3 hover:bg-muted cursor-pointer flex justify-between items-center"
+                        onClick={() => agregarAlCarrito(producto)}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{producto.nombre}</p>
+                            {stockActual !== undefined && (
+                              <Badge
+                                variant={stockBajoMinimo ? "destructive" : "secondary"}
+                                className="text-[10px] h-5 px-1"
+                              >
+                                {stockActual <= 0 ? "Sin Stock" : `Stock: ${stockActual}`}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {producto.id} - {producto.categoria || "Sin categoría"}
+                          </p>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {producto.id} - {producto.categoria || "Sin categoría"}
-                        </p>
+                        <div className="text-right">
+                          <p className="font-bold text-lg">
+                            ${getPrecio(producto).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                          </p>
+                          <Button size="sm" variant="ghost">
+                            <Plus className="h-4 w-4 mr-1" /> Agregar
+                          </Button>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-lg">
-                          ${getPrecio(producto).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                        </p>
-                        <Button size="sm" variant="ghost">
-                          <Plus className="h-4 w-4 mr-1" /> Agregar
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 

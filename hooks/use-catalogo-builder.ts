@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from 'react';
-import { CatalogoProducto, CamposVisibles, CAMPOS_VISIBLES_DEFAULT } from '@/lib/supabase';
+import { CatalogoProducto, CamposVisibles, CAMPOS_VISIBLES_DEFAULT, CatalogoTipoPrecio } from '@/lib/supabase';
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
@@ -9,6 +9,8 @@ interface WizardState {
   step: WizardStep;
   clienteNombre: string;
   titulo: string;
+  tipoPrecio: CatalogoTipoPrecio;
+  duracionDias: number;
   productosSeleccionados: Map<string, CatalogoProducto>;
   descuentoGlobal: number;
   camposVisibles: CamposVisibles;
@@ -19,6 +21,8 @@ export function useCatalogoBuilder() {
     step: 1,
     clienteNombre: '',
     titulo: 'Catálogo de Precios',
+    tipoPrecio: 'mayor',
+    duracionDias: 10,
     productosSeleccionados: new Map(),
     descuentoGlobal: 0,
     camposVisibles: { ...CAMPOS_VISIBLES_DEFAULT },
@@ -129,11 +133,24 @@ export function useCatalogoBuilder() {
     setState(prev => ({ ...prev, titulo: titulo }));
   }, []);
 
+  const setTipoPrecio = useCallback((tipoPrecio: CatalogoTipoPrecio) => {
+    setState(prev => ({ ...prev, tipoPrecio }));
+  }, []);
+
+  const setDuracionDias = useCallback((duracionDias: number) => {
+    setState(prev => ({
+      ...prev,
+      duracionDias: Math.min(Math.max(duracionDias || 1, 1), 365)
+    }));
+  }, []);
+
   const reset = useCallback(() => {
     setState({
       step: 1,
       clienteNombre: '',
       titulo: 'Catálogo de Precios',
+      tipoPrecio: 'mayor',
+      duracionDias: 10,
       productosSeleccionados: new Map(),
       descuentoGlobal: 0,
       camposVisibles: { ...CAMPOS_VISIBLES_DEFAULT },
@@ -148,6 +165,10 @@ export function useCatalogoBuilder() {
   // Get selected product IDs
   const getProductoIds = useCallback((): string[] => {
     return Array.from(state.productosSeleccionados.keys());
+  }, [state.productosSeleccionados]);
+
+  const getProductoOrder = useCallback((productoId: string): number => {
+    return Array.from(state.productosSeleccionados.keys()).findIndex((id) => id === productoId);
   }, [state.productosSeleccionados]);
 
   // Check if a product is selected
@@ -180,10 +201,13 @@ export function useCatalogoBuilder() {
     setCamposVisibles,
     setClienteNombre,
     setTitulo,
+    setTipoPrecio,
+    setDuracionDias,
     // Utilities
     reset,
     getProductosArray,
     getProductoIds,
+    getProductoOrder,
     productosCount: state.productosSeleccionados.size,
     canProceed: {
       step1: state.productosSeleccionados.size > 0,

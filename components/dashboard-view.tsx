@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Package, AlertCircle, Tag, Layers, RefreshCw, ChevronDown, HardDriveDownload, CheckCircle2, XCircle, ExternalLink, ShieldAlert } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,13 +19,7 @@ export default function DashboardView() {
   const { estadisticas, loading, isValidating, error, refetch } = useEstadisticas()
   const [backupStatus, setBackupStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [backupMessage, setBackupMessage] = useState("")
-  const [showBackupModal, setShowBackupModal] = useState(false)
-
-  useEffect(() => {
-    if (isSaturday() && backupStatus !== "success") {
-      setShowBackupModal(true)
-    }
-  }, [])
+  const [showBackupModal, setShowBackupModal] = useState(() => isSaturday())
 
   async function handleBackup() {
     setBackupStatus("loading")

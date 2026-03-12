@@ -8,6 +8,7 @@ import { CatalogoPreview } from "@/components/catalogos/CatalogoPreview"
 import { pdf } from "@react-pdf/renderer"
 import { CatalogPDFDocument } from "@/components/catalogos/CatalogPDFDocument"
 import { urlToBase64 } from "@/lib/pdf-utils"
+import { formatearFechaCatalogo, obtenerTextoVigenciaHastaFecha } from "@/lib/catalogo-utils"
 import { Button } from "@/components/ui/button"
 import { Loader2, FileDown, AlertCircle, Clock } from "lucide-react"
 import { toast } from "sonner"
@@ -53,7 +54,6 @@ export default function CatalogoPublicoPage() {
     loadCatalogo()
   }, [token])
 
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleDownloadPDF = async () => {
     if (!catalogo) return
 
@@ -77,19 +77,13 @@ export default function CatalogoPublicoPage() {
           clienteNombre={catalogo.cliente_nombre}
           productos={productos}
           camposVisibles={catalogo.campos_visibles}
+          tipoPrecio={catalogo.tipo_precio}
           descuentoGlobal={catalogo.descuento_global}
-          // In public view, individual discounts are already applied to the price? 
-          // Actually, ProductoCatalogo might have different structure or we need to handle it.
-          // Let's check ProductoCatalogo interface.
-          // Assuming for now we pass 0 or handle it if available.
-          getDescuentoIndividual={(id) => {
-            // If implicit discount exists in producto logic, we might need a way to get it.
-            // But usually public view gets final prices or we just pass 0 if not editable here.
-            return 0;
-          }}
-          getPrecioPersonalizado={(id) => null}
+          getDescuentoIndividual={() => 0}
+          getPrecioPersonalizado={() => null}
           logoBase64={logoBase64}
           productImagesBase64={productImages}
+          footerText={obtenerTextoVigenciaHastaFecha(catalogo.expires_at)}
         />
       ).toBlob();
 
@@ -110,14 +104,6 @@ export default function CatalogoPublicoPage() {
     } finally {
       setIsGeneratingPDF(false)
     }
-  }
-
-  const formatExpiryDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('es-AR', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    })
   }
 
   if (isLoading) {
@@ -179,7 +165,7 @@ export default function CatalogoPublicoPage() {
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500">
               <Clock className="w-3 h-3" />
-              Válido hasta {formatExpiryDate(catalogo.expires_at)}
+              Valido hasta {formatearFechaCatalogo(catalogo.expires_at)}
             </div>
             <Button
               onClick={handleDownloadPDF}
@@ -207,8 +193,10 @@ export default function CatalogoPublicoPage() {
           clienteNombre={catalogo.cliente_nombre}
           productos={productos}
           camposVisibles={catalogo.campos_visibles}
+          tipoPrecio={catalogo.tipo_precio}
           descuentoGlobal={catalogo.descuento_global}
           fechaGeneracion={new Date(catalogo.created_at)}
+          footerText={obtenerTextoVigenciaHastaFecha(catalogo.expires_at)}
         />
 
         {/* Hidden PDF View */}

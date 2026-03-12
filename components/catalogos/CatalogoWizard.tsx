@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useCatalogoBuilder, WizardStep } from "@/hooks/use-catalogo-builder"
 import { api, Producto } from "@/lib/api"
@@ -10,11 +10,22 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Slider } from "@/components/ui/slider"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { toast } from "sonner"
 import { CatalogoProductCard } from "./CatalogoProductCard"
 import { CatalogoPreview } from "./CatalogoPreview"
 import { CatalogoPrintTemplate } from "./CatalogoPrintTemplate"
 import { CamposVisibles } from "@/lib/supabase"
+import {
+  calcularPrecioCatalogoFinal,
+  formatearDiasValidez,
+  formatearFechaCatalogo,
+  obtenerDescripcionTipoPrecio,
+  obtenerPrecioBaseCatalogo,
+  obtenerTextoAjuste,
+  obtenerTextoAjustePorcentaje,
+  obtenerTextoVigenciaDesdeDias,
+} from "@/lib/catalogo-utils"
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,42 +39,28 @@ import {
   MessageCircle,
 } from "lucide-react"
 
-// Step indicator
 function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
   const steps = [
     { num: 1, label: "Productos" },
-    { num: 2, label: "Descuentos" },
+    { num: 2, label: "Precios" },
     { num: 3, label: "Campos" },
-    { num: 4, label: "Exportar" },
+    { num: 4, label: "Publicar" },
   ];
 
   return (
-    <div className="flex items-center justify-center mb-6">
+    <div className="mb-6 flex items-center justify-center">
       {steps.map((step, index) => (
         <div key={step.num} className="flex items-center">
           <div
-            className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${currentStep >= step.num
-              ? "bg-blue-500 text-white"
-              : "bg-gray-200 text-gray-500"
-              }`}
+            className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors ${currentStep >= step.num ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-500"}`}
           >
-            {currentStep > step.num ? (
-              <Check className="w-4 h-4" />
-            ) : (
-              step.num
-            )}
+            {currentStep > step.num ? <Check className="h-4 w-4" /> : step.num}
           </div>
-          <span
-            className={`ml-2 text-sm hidden sm:inline ${currentStep >= step.num ? "text-gray-900" : "text-gray-500"
-              }`}
-          >
+          <span className={`ml-2 hidden text-sm sm:inline ${currentStep >= step.num ? "text-gray-900" : "text-gray-500"}`}>
             {step.label}
           </span>
           {index < steps.length - 1 && (
-            <div
-              className={`w-8 sm:w-16 h-0.5 mx-2 transition-colors ${currentStep > step.num ? "bg-blue-500" : "bg-gray-200"
-                }`}
-            />
+            <div className={`mx-2 h-0.5 w-8 transition-colors sm:w-16 ${currentStep > step.num ? "bg-blue-500" : "bg-gray-200"}`} />
           )}
         </div>
       ))}
@@ -76,25 +73,27 @@ export function CatalogoWizard() {
   const { user } = useAuth();
   const builder = useCatalogoBuilder();
 
-  // Products state
   const [productos, setProductos] = useState<Producto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [selectedProductosData, setSelectedProductosData] = useState<Producto[]>([]);
 
-  // Loading states
   const [isCreating, setIsCreating] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [pdfLogo, setPdfLogo] = useState<string>("/LogoLaFuga.svg");
   const [pdfImages, setPdfImages] = useState<Record<string, string>>({});
 
-  // Created catalog state
   const [createdCatalogo, setCreatedCatalogo] = useState<{
     id: string;
     publicToken: string;
+    expiresAt: string;
   } | null>(null);
 
-  // Search products
+  const vigenciaTexto = obtenerTextoVigenciaDesdeDias(builder.state.duracionDias);
+  const getProductoIds = builder.getProductoIds;
+  const currentStep = builder.state.step;
+  const productosCount = builder.productosCount;
+
   useEffect(() => {
     const searchProducts = async () => {
       if (searchQuery.length < 2) {
@@ -117,10 +116,9 @@ export function CatalogoWizard() {
     return () => clearTimeout(debounce);
   }, [searchQuery]);
 
-  // Load selected products data when moving to step 2
   useEffect(() => {
     const loadSelectedProducts = async () => {
-      const ids = builder.getProductoIds();
+      const ids = getProductoIds();
       if (ids.length === 0) {
         setSelectedProductosData([]);
         return;
@@ -134,13 +132,12 @@ export function CatalogoWizard() {
       }
     };
 
-    if (builder.state.step >= 2) {
+    if (currentStep >= 2) {
       loadSelectedProducts();
     }
-  }, [builder.state.step, builder.productosCount]);
+  }, [currentStep, getProductoIds, productosCount]);
 
-  // Handlers
-  const handleCreateCatalogo = async (generateLink: boolean) => {
+  const handleCreateCatalogo = async (copyLinkAfterCreate: boolean) => {
     if (!builder.state.clienteNombre.trim()) {
       toast.error("Por favor ingresa el nombre del cliente");
       return;
@@ -148,9 +145,15 @@ export function CatalogoWizard() {
 
     setIsCreating(true);
     try {
+      const expiresAt = new Date(
+        Date.now() + builder.state.duracionDias * 24 * 60 * 60 * 1000
+      ).toISOString();
+
       const catalogo = await api.crearCatalogo({
         cliente_nombre: builder.state.clienteNombre.trim(),
         titulo: builder.state.titulo.trim() || "Catálogo de Precios",
+        tipo_precio: builder.state.tipoPrecio,
+        expires_at: expiresAt,
         descuento_global: builder.state.descuentoGlobal,
         campos_visibles: builder.state.camposVisibles,
         productos: builder.getProductosArray(),
@@ -160,12 +163,13 @@ export function CatalogoWizard() {
       setCreatedCatalogo({
         id: catalogo.id,
         publicToken: catalogo.public_token,
+        expiresAt: catalogo.expires_at,
       });
 
-      if (generateLink) {
+      if (copyLinkAfterCreate) {
         const url = `${window.location.origin}/catalogo/${catalogo.public_token}`;
         await navigator.clipboard.writeText(url);
-        toast.success("Link copiado al portapapeles");
+        toast.success(`Link copiado. Vigencia: ${formatearDiasValidez(builder.state.duracionDias)}`);
       }
     } catch (error) {
       console.error("Error creating catalog:", error);
@@ -178,54 +182,43 @@ export function CatalogoWizard() {
   const handleGeneratePDF = async () => {
     setIsGeneratingPDF(true);
     try {
-      // Preload logo to Base64 to ensure it renders in PDF
-      // @ts-ignore - Importing from lib/pdf-utils
       const { urlToBase64 } = await import("@/lib/pdf-utils");
       const logoBase64 = await urlToBase64("/LogoLaFuga.svg");
 
-      const element = document.getElementById('catalogo-print-template');
+      const element = document.getElementById("catalogo-print-template");
       if (!element) {
         toast.error("No se pudo encontrar el contenido para generar el PDF");
         return;
       }
 
-      // Update the logo src in the template momentarily
-      // We can't easily pass props to the already rendered component dynamically in this flow 
-      // without triggering a re-render. 
-      // Instead, let's find the img tag and update it manually or use a state in the wizard to pass down.
-      // Better: Store logoBase64 in state.
-
-      // Actually, passing it via prop is cleaner, but requires a re-render.
-      // Let's modify the component state to include logoBase64.
       setPdfLogo(logoBase64 || "/LogoLaFuga.svg");
 
-      // Preload all product images
       const productImages: Record<string, string> = {};
-      const imagePromises = selectedProductosData.map(async (p) => {
-        if (p.image_url) {
-          const b64 = await urlToBase64(p.image_url);
-          if (b64) productImages[p.id] = b64;
-        }
-      });
-      await Promise.all(imagePromises);
+      await Promise.all(
+        selectedProductosData.map(async (producto) => {
+          if (!producto.image_url) return;
+          const imageBase64 = await urlToBase64(producto.image_url);
+          if (imageBase64) {
+            productImages[producto.id] = imageBase64;
+          }
+        })
+      );
       setPdfImages(productImages);
 
-      // Give React a moment to update the DOM with the new images
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Dynamic import to avoid SSR issues
-      // @ts-ignore
       const html2pdf = (await import("html2pdf.js")).default;
 
-      const opt = {
-        margin: 0,
-        filename: `Catalogo_${builder.state.clienteNombre.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
-
-      await html2pdf().from(element).set(opt).save();
+      await html2pdf()
+        .from(element)
+        .set({
+          margin: 0,
+          filename: `Catalogo_${builder.state.clienteNombre.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, logging: false },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        })
+        .save();
 
       toast.success("PDF generado correctamente");
     } catch (error) {
@@ -237,33 +230,40 @@ export function CatalogoWizard() {
   };
 
   const handleCopyLink = async () => {
-    if (createdCatalogo) {
-      const url = `${window.location.origin}/catalogo/${createdCatalogo.publicToken}`;
-      await navigator.clipboard.writeText(url);
-      toast.success("Link copiado al portapapeles");
-    }
+    if (!createdCatalogo) return;
+
+    const url = `${window.location.origin}/catalogo/${createdCatalogo.publicToken}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Link copiado al portapapeles");
   };
 
   const handleCopyWhatsApp = async () => {
     try {
-      let message = `Hola! 👋 ¿Cómo va todo?\n\nTe hablamos desde *La Fuga* Artículos de limpieza.\n\nTe comparto nuestro catálogo actualizado con precios especiales de "fuga" 💸.\n\n`;
+      let message = "Hola! Te compartimos tu catalogo personalizado de *La Fuga*.\n\n";
+      message += `*Tipo de lista:* ${obtenerDescripcionTipoPrecio(builder.state.tipoPrecio)}\n`;
+      message += `*Vigencia:* ${createdCatalogo ? formatearFechaCatalogo(createdCatalogo.expiresAt) : formatearDiasValidez(builder.state.duracionDias)}\n`;
 
       if (createdCatalogo) {
-        message += `${window.location.origin}/catalogo/${createdCatalogo.publicToken}\n\n`;
+        message += `*Link privado:* ${window.location.origin}/catalogo/${createdCatalogo.publicToken}\n`;
+        message += `*Valido hasta:* ${formatearFechaCatalogo(createdCatalogo.expiresAt)}\n`;
       }
 
-      message += `*Productos seleccionados:*\n`;
+      message += "\n*Productos seleccionados:*\n";
 
       selectedProductosData.forEach((producto) => {
         const config = builder.getProductoConfig(producto.id);
-        const descuentoIndividual = config?.descuento_individual ?? 0;
-        const totalDescuento = builder.state.descuentoGlobal + descuentoIndividual;
-        const precioFinal = Math.round(producto.precio_mayor * (1 - totalDescuento / 100) * 100) / 100;
+        const precioFinal = calcularPrecioCatalogoFinal({
+          producto,
+          tipoPrecio: builder.state.tipoPrecio,
+          descuentoGlobal: builder.state.descuentoGlobal,
+          descuentoIndividual: config?.descuento_individual ?? 0,
+          precioPersonalizado: config?.precio_personalizado ?? null,
+        });
 
-        message += `• ${producto.nombre}: $${precioFinal.toLocaleString()}\n`;
+        message += `• ${producto.nombre}: $${precioFinal.toLocaleString("es-AR")}\n`;
       });
 
-      message += `\nEstamos a disposición para lo que necesites. 🏠✨`;
+      message += "\nQuedamos a disposicion para cualquier consulta.";
 
       await navigator.clipboard.writeText(message);
       toast.success("Mensaje copiado al portapapeles");
@@ -277,171 +277,227 @@ export function CatalogoWizard() {
     foto: "Foto del producto",
     nombre: "Nombre",
     precio: "Precio",
-    codigo: "Código (ID)",
-    descripcion: "Descripción",
+    codigo: "Codigo (ID)",
+    descripcion: "Descripcion",
     unidad: "Unidad",
   };
 
   return (
-    <div className="max-w-5xl mx-auto">
-      {/* Hidden Print Template */}
-      <div style={{ position: 'fixed', top: '-10000px', left: 0, visibility: 'hidden' }}>
+    <div className="mx-auto max-w-5xl">
+      <div style={{ position: "fixed", top: "-10000px", left: 0, visibility: "hidden" }}>
         <CatalogoPrintTemplate
           id="catalogo-print-template"
           titulo={builder.state.titulo}
           clienteNombre={builder.state.clienteNombre}
           productos={selectedProductosData}
           camposVisibles={builder.state.camposVisibles}
+          tipoPrecio={builder.state.tipoPrecio}
           descuentoGlobal={builder.state.descuentoGlobal}
           getDescuentoIndividual={(id) => builder.getProductoConfig(id)?.descuento_individual ?? 0}
           getPrecioPersonalizado={(id) => builder.getProductoConfig(id)?.precio_personalizado ?? null}
-          // @ts-ignore
           logoSrc={pdfLogo}
           productImages={pdfImages}
+          footerText={vigenciaTexto}
         />
       </div>
 
-      {/* Step Indicator */}
       <StepIndicator currentStep={builder.state.step} />
 
-      {/* Step Content */}
-      <div className="bg-white rounded-lg border p-6 min-h-[400px]">
-        {/* Step 1: Product Selection */}
+      <div className="min-h-[400px] rounded-lg border bg-white p-6">
         {builder.state.step === 1 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Seleccionar Productos</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Seleccionar productos</h2>
+                <p className="text-sm text-gray-500">
+                  El catalogo respetara el orden en que los vayas marcando.
+                </p>
+              </div>
               <span className="text-sm text-gray-500">
                 {builder.productosCount} seleccionado{builder.productosCount !== 1 ? "s" : ""}
               </span>
             </div>
 
-            {/* Search */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
                 type="text"
                 autoComplete="off"
-                placeholder="Buscar productos por nombre o código..."
+                placeholder="Buscar productos por nombre o codigo..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
               {isSearching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
+                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
               )}
             </div>
 
-            {/* Selected products summary */}
             {builder.productosCount > 0 && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm text-gray-600">Seleccionados:</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-gray-600">
+                  Seleccionados en orden. El numero azul indica la posicion en el catalogo.
+                </span>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={builder.deselectAll}
                   className="text-red-600 hover:text-red-700"
                 >
-                  <X className="w-3 h-3 mr-1" />
+                  <X className="mr-1 h-3 w-3" />
                   Limpiar todo
                 </Button>
               </div>
             )}
 
-            {/* Products grid */}
             {productos.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[400px] overflow-y-auto">
+              <div className="grid max-h-[400px] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
                 {productos.map((producto) => (
                   <CatalogoProductCard
                     key={producto.id}
                     producto={producto}
                     camposVisibles={{ foto: true, nombre: true, precio: true, codigo: true, descripcion: false, unidad: true }}
+                    tipoPrecio={builder.state.tipoPrecio}
                     showCheckbox
                     isSelected={builder.isProductoSelected(producto.id)}
                     onToggle={builder.toggleProducto}
+                    selectionOrder={builder.getProductoOrder(producto.id)}
                     compact
                   />
                 ))}
               </div>
             ) : searchQuery.length >= 2 && !isSearching ? (
-              <p className="text-center text-gray-500 py-8">
-                No se encontraron productos
-              </p>
+              <p className="py-8 text-center text-gray-500">No se encontraron productos</p>
             ) : (
-              <p className="text-center text-gray-500 py-8">
-                Escribe al menos 2 caracteres para buscar productos
-              </p>
+              <p className="py-8 text-center text-gray-500">Escribe al menos 2 caracteres para buscar productos</p>
             )}
           </div>
         )}
 
-        {/* Step 2: Discount Configuration */}
         {builder.state.step === 2 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold">Configurar Descuentos</h2>
-
-            {/* Global Discount */}
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between">
-                <Label>Descuento Global</Label>
-                <span className="text-2xl font-bold text-blue-600">
-                  {builder.state.descuentoGlobal}%
-                </span>
-              </div>
-              <Slider
-                value={[builder.state.descuentoGlobal]}
-                onValueChange={([value]) => builder.setDescuentoGlobal(value)}
-                max={50}
-                step={1}
-                className="py-2"
-              />
-              <p className="text-xs text-gray-500">
-                Este descuento se aplicará a todos los productos del catálogo
+            <div>
+              <h2 className="text-lg font-semibold">Configurar lista y ajustes</h2>
+              <p className="text-sm text-gray-500">
+                Podes trabajar sobre precio mayorista o minorista, aplicar descuentos, recargos y fijar precios manuales por producto.
               </p>
             </div>
 
-            {/* Individual Discounts */}
+            <div className="space-y-4 rounded-lg bg-gray-50 p-4">
+              <div className="space-y-2">
+                <Label>Lista base</Label>
+                <RadioGroup
+                  value={builder.state.tipoPrecio}
+                  onValueChange={(value) => builder.setTipoPrecio(value as typeof builder.state.tipoPrecio)}
+                  className="grid gap-3 md:grid-cols-2"
+                >
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg border bg-white p-4">
+                    <RadioGroupItem value="mayor" id="catalogo-tipo-mayor" />
+                    <div>
+                      <p className="font-medium text-gray-900">Mayorista</p>
+                      <p className="text-sm text-gray-500">Usa `precio_mayor` como base</p>
+                    </div>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg border bg-white p-4">
+                    <RadioGroupItem value="menor" id="catalogo-tipo-menor" />
+                    <div>
+                      <p className="font-medium text-gray-900">Minorista</p>
+                      <p className="text-sm text-gray-500">Usa `precio_menor` como base</p>
+                    </div>
+                  </label>
+                </RadioGroup>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Ajuste global</Label>
+                  <span className="text-2xl font-bold text-blue-600">
+                    {obtenerTextoAjustePorcentaje(builder.state.descuentoGlobal)}
+                  </span>
+                </div>
+                <Slider
+                  value={[builder.state.descuentoGlobal]}
+                  onValueChange={([value]) => builder.setDescuentoGlobal(value)}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  className="py-2"
+                />
+                <p className="text-xs text-gray-500">
+                  Usa valores positivos para descuentos y negativos para recargos.
+                </p>
+              </div>
+            </div>
+
             <div className="space-y-3">
-              <Label>Ajustes Individuales</Label>
-              <div className="max-h-[300px] overflow-y-auto space-y-2">
-                {selectedProductosData.map((producto) => {
+              <Label>Ajustes por producto</Label>
+              <div className="max-h-[360px] space-y-3 overflow-y-auto">
+                {selectedProductosData.map((producto, index) => {
                   const config = builder.getProductoConfig(producto.id);
                   const descuentoIndividual = config?.descuento_individual ?? 0;
-                  const totalDescuento = builder.state.descuentoGlobal + descuentoIndividual;
-                  const precioFinal = Math.round(producto.precio_mayor * (1 - totalDescuento / 100) * 100) / 100;
+                  const precioPersonalizado = config?.precio_personalizado ?? null;
+                  const precioBase = obtenerPrecioBaseCatalogo(producto, builder.state.tipoPrecio);
+                  const precioFinal = calcularPrecioCatalogoFinal({
+                    producto,
+                    tipoPrecio: builder.state.tipoPrecio,
+                    descuentoGlobal: builder.state.descuentoGlobal,
+                    descuentoIndividual,
+                    precioPersonalizado,
+                  });
 
                   return (
                     <div
                       key={producto.id}
-                      className="flex items-center gap-4 p-3 bg-white border rounded-lg"
+                      className="grid gap-3 rounded-lg border bg-white p-3 md:grid-cols-[minmax(0,1fr)_120px_160px_140px]"
                     >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{producto.nombre}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900">
+                          {index + 1}. {producto.nombre}
+                        </p>
                         <p className="text-xs text-gray-500">
-                          Original: ${producto.precio_mayor.toLocaleString()}
+                          Base {obtenerDescripcionTipoPrecio(builder.state.tipoPrecio).toLowerCase()}: ${precioBase.toLocaleString("es-AR")}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+
+                      <div className="space-y-1">
+                        <Label className="text-xs text-gray-500">Ajuste %</Label>
                         <Input
                           type="number"
                           autoComplete="off"
                           value={descuentoIndividual}
-                          onChange={(e) =>
-                            builder.setDescuentoIndividual(producto.id, Number(e.target.value))
-                          }
-                          className="w-16 text-center"
-                          min={0}
-                          max={50}
+                          onChange={(e) => builder.setDescuentoIndividual(producto.id, Number(e.target.value))}
+                          className="text-center"
+                          min={-100}
+                          max={100}
                         />
-                        <span className="text-sm text-gray-500">%</span>
                       </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs text-gray-500">Precio final manual</Label>
+                        <Input
+                          type="number"
+                          autoComplete="off"
+                          value={precioPersonalizado ?? ""}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.trim();
+                            builder.setPrecioPersonalizado(
+                              producto.id,
+                              rawValue === "" ? null : Number(rawValue)
+                            );
+                          }}
+                          placeholder={precioFinal.toString()}
+                          min={0}
+                          step="0.01"
+                        />
+                      </div>
+
                       <div className="text-right">
-                        <p className="text-sm font-bold text-blue-600">
-                          ${precioFinal.toLocaleString()}
+                        <p className="text-xs text-gray-500">
+                          {precioPersonalizado !== null ? "Precio manual activo" : obtenerTextoAjuste(descuentoIndividual)}
                         </p>
-                        {totalDescuento > 0 && (
-                          <p className="text-xs text-green-600">-{totalDescuento}%</p>
-                        )}
+                        <p className="text-sm font-bold text-blue-600">
+                          ${precioFinal.toLocaleString("es-AR")}
+                        </p>
                       </div>
                     </div>
                   );
@@ -451,19 +507,20 @@ export function CatalogoWizard() {
           </div>
         )}
 
-        {/* Step 3: Visible Fields */}
         {builder.state.step === 3 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold">Campos Visibles</h2>
-            <p className="text-sm text-gray-500">
-              Selecciona qué información mostrar en el catálogo
-            </p>
+            <div>
+              <h2 className="text-lg font-semibold">Campos visibles</h2>
+              <p className="text-sm text-gray-500">
+                Selecciona que informacion queres mostrar en el catalogo.
+              </p>
+            </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {(Object.keys(campoLabels) as (keyof CamposVisibles)[]).map((campo) => (
                 <label
                   key={campo}
-                  className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="flex cursor-pointer items-center gap-3 rounded-lg bg-gray-50 p-4 transition-colors hover:bg-gray-100"
                 >
                   <Checkbox
                     checked={builder.state.camposVisibles[campo]}
@@ -474,17 +531,18 @@ export function CatalogoWizard() {
               ))}
             </div>
 
-            {/* Mini Preview */}
             <div className="mt-6">
               <Label className="mb-2 block">Vista previa</Label>
-              <div className="grid grid-cols-3 gap-2 p-4 bg-gray-50 rounded-lg">
+              <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 p-4 sm:grid-cols-3">
                 {selectedProductosData.slice(0, 3).map((producto) => (
                   <CatalogoProductCard
                     key={producto.id}
                     producto={producto}
                     camposVisibles={builder.state.camposVisibles}
+                    tipoPrecio={builder.state.tipoPrecio}
                     descuentoGlobal={builder.state.descuentoGlobal}
                     descuentoIndividual={builder.getProductoConfig(producto.id)?.descuento_individual ?? 0}
+                    precioPersonalizado={builder.getProductoConfig(producto.id)?.precio_personalizado ?? null}
                     compact
                   />
                 ))}
@@ -493,50 +551,81 @@ export function CatalogoWizard() {
           </div>
         )}
 
-        {/* Step 4: Preview & Export */}
         {builder.state.step === 4 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold">Vista Previa y Exportar</h2>
+            <div>
+              <h2 className="text-lg font-semibold">Vista previa y publicacion</h2>
+              <p className="text-sm text-gray-500">
+                Configura a quien se le comparte, cuanto dura el link y revisa el resultado final.
+              </p>
+            </div>
 
-            {/* Client Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="clienteNombre">Nombre del Cliente *</Label>
+                <Label htmlFor="clienteNombre">Nombre del cliente *</Label>
                 <Input
                   id="clienteNombre"
                   autoComplete="off"
                   value={builder.state.clienteNombre}
                   onChange={(e) => builder.setClienteNombre(e.target.value)}
-                  placeholder="Ej: Juan Pérez"
+                  placeholder="Ej: Juan Perez"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="titulo">Título del Catálogo</Label>
+                <Label htmlFor="titulo">Titulo del catalogo</Label>
                 <Input
                   id="titulo"
                   autoComplete="off"
                   value={builder.state.titulo}
                   onChange={(e) => builder.setTitulo(e.target.value)}
-                  placeholder="Catálogo de Precios"
+                  placeholder="Catalogo de precios"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="duracionDias">Duracion del link</Label>
+                <Input
+                  id="duracionDias"
+                  type="number"
+                  autoComplete="off"
+                  value={builder.state.duracionDias}
+                  onChange={(e) => builder.setDuracionDias(Number(e.target.value))}
+                  min={1}
+                  max={365}
+                />
+                <p className="text-xs text-gray-500">Configurado en dias, desde 1 hasta 365.</p>
               </div>
             </div>
 
-            {/* Preview */}
-            <div className="border rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+            <div className="grid grid-cols-1 gap-3 rounded-lg border bg-gray-50 p-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Lista base</p>
+                <p className="font-medium text-gray-900">{obtenerDescripcionTipoPrecio(builder.state.tipoPrecio)}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Vigencia</p>
+                <p className="font-medium text-gray-900">{formatearDiasValidez(builder.state.duracionDias)}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Productos</p>
+                <p className="font-medium text-gray-900">{builder.productosCount}</p>
+              </div>
+            </div>
+
+            <div className="max-h-[400px] overflow-y-auto rounded-lg border">
               <CatalogoPreview
                 titulo={builder.state.titulo}
                 clienteNombre={builder.state.clienteNombre || "Cliente"}
                 productos={selectedProductosData}
                 camposVisibles={builder.state.camposVisibles}
+                tipoPrecio={builder.state.tipoPrecio}
                 descuentoGlobal={builder.state.descuentoGlobal}
                 getDescuentoIndividual={(id) => builder.getProductoConfig(id)?.descuento_individual ?? 0}
                 getPrecioPersonalizado={(id) => builder.getProductoConfig(id)?.precio_personalizado ?? null}
+                footerText={vigenciaTexto}
               />
             </div>
 
-            {/* Export Buttons */}
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               {!createdCatalogo ? (
                 <>
                   <Button
@@ -546,9 +635,9 @@ export function CatalogoWizard() {
                     variant="outline"
                   >
                     {isGeneratingPDF ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <FileDown className="w-4 h-4 mr-2" />
+                      <FileDown className="mr-2 h-4 w-4" />
                     )}
                     Descargar PDF
                   </Button>
@@ -558,26 +647,24 @@ export function CatalogoWizard() {
                     className="flex-1"
                   >
                     {isCreating ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <Link2 className="w-4 h-4 mr-2" />
+                      <Link2 className="mr-2 h-4 w-4" />
                     )}
-                    Generar Link Temporal
+                    Generar link privado
                   </Button>
                   <Button
                     onClick={handleCopyWhatsApp}
                     variant="outline"
                     className="flex-1"
                   >
-                    <MessageCircle className="w-4 h-4 mr-2" />
+                    <MessageCircle className="mr-2 h-4 w-4" />
                     Copiar WhatsApp
                   </Button>
                 </>
               ) : (
-                <div className="flex-1 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-green-700 font-medium mb-2">
-                    Catálogo creado exitosamente
-                  </p>
+                <div className="flex-1 rounded-lg border border-green-200 bg-green-50 p-4">
+                  <p className="mb-2 font-medium text-green-700">Catalogo creado exitosamente</p>
                   <div className="flex items-center gap-2">
                     <Input
                       readOnly
@@ -585,19 +672,19 @@ export function CatalogoWizard() {
                       className="flex-1 bg-white"
                     />
                     <Button onClick={handleCopyLink} variant="outline" size="icon">
-                      <Copy className="w-4 h-4" />
+                      <Copy className="h-4 w-4" />
                     </Button>
                   </div>
-                  <p className="text-xs text-green-600 mt-2">
-                    El link expira en 7 días
+                  <p className="mt-2 text-xs text-green-700">
+                    Vencimiento: {formatearFechaCatalogo(createdCatalogo.expiresAt)}
                   </p>
                   <Button
                     onClick={handleCopyWhatsApp}
                     variant="outline"
-                    className="w-full mt-3 bg-white text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800"
+                    className="mt-3 w-full border-green-200 bg-white text-green-700 hover:bg-green-100 hover:text-green-800"
                   >
-                    <MessageCircle className="w-4 h-4 mr-2" />
-                    Copiar Mensaje Completo
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    Copiar mensaje completo
                   </Button>
                 </div>
               )}
@@ -606,14 +693,13 @@ export function CatalogoWizard() {
         )}
       </div>
 
-      {/* Navigation */}
-      <div className="flex justify-between mt-6">
+      <div className="mt-6 flex justify-between">
         <Button
           variant="outline"
           onClick={builder.prevStep}
           disabled={builder.state.step === 1}
         >
-          <ArrowLeft className="w-4 h-4 mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Anterior
         </Button>
 
@@ -623,11 +709,11 @@ export function CatalogoWizard() {
             disabled={!builder.canProceed[`step${builder.state.step}` as keyof typeof builder.canProceed]}
           >
             Siguiente
-            <ArrowRight className="w-4 h-4 ml-2" />
+            <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
           <Button variant="outline" onClick={() => router.push("/catalogos")}>
-            Volver a Catálogos
+            Volver a catalogos
           </Button>
         )}
       </div>

@@ -3,6 +3,7 @@
 
 import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, CAMPOS_VISIBLES_DEFAULT, MovimientoStock, TipoMovimiento, TipoAjuste, AjusteStockInput, AlertaStock, Compra, CompraDetalle, CompraInsert, CompraDetalleInsert, CompraConDetalle, TipoDocumentoCompra, EstadoCompra, ComposicionCombo, ComposicionComboInsert, ConfiguracionSistema, MetodoCosteo, Proveedor, ProveedorInsert, ProveedorUpdate } from './supabase';
 import { logProductChange } from './supabase-utils';
+import { calcularPrecioCatalogoFinal, ordenarProductosSegunIds } from './catalogo-utils';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
@@ -123,6 +124,13 @@ export interface ActualizacionMasiva {
   porcentaje: number;
   aplicar_a: 'menor' | 'mayor' | 'costo' | 'ambos' | 'todos';
 }
+
+type ProductoStockSnapshot = Pick<Producto, 'stock_actual' | 'stock_minimo' | 'factor_conversion' | 'costo'>;
+type ProductoStockAlertaRow = Pick<Producto, 'id' | 'nombre' | 'stock_actual' | 'stock_minimo'>;
+type ConfigRow = {
+  clave: string;
+  valor: string;
+};
 
 // Clase de error personalizada para errores de API
 export class ApiError extends Error {
@@ -1162,6 +1170,8 @@ export const api = {
       .insert({
         cliente_nombre: datos.cliente_nombre,
         titulo: datos.titulo || 'Catálogo de Precios',
+        tipo_precio: datos.tipo_precio || 'mayor',
+        expires_at: datos.expires_at || new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
         descuento_global: datos.descuento_global || 0,
         campos_visibles: camposVisibles,
         productos: datos.productos,
@@ -1269,7 +1279,7 @@ export const api = {
   /**
    * Renews a catalog's link (new token + new expiration)
    */
-  async renovarLinkCatalogo(id: string, diasValidos: number = 7): Promise<Catalogo> {
+  async renovarLinkCatalogo(id: string, diasValidos: number = 10): Promise<Catalogo> {
     // Generate new token client-side
     const newToken = Array.from(crypto.getRandomValues(new Uint8Array(16)))
       .map(b => b.toString(16).padStart(2, '0'))
@@ -1312,10 +1322,13 @@ export const api = {
         const producto = productosMap.get(cp.producto_id);
         if (!producto) return null;
 
-        // Calculate final price
-        const precioBase = cp.precio_personalizado ?? producto.precio_mayor;
-        const descuentoTotal = catalogo.descuento_global + cp.descuento_individual;
-        const precioFinal = Math.round(precioBase * (1 - descuentoTotal / 100) * 100) / 100;
+        const precioFinal = calcularPrecioCatalogoFinal({
+          producto,
+          tipoPrecio: catalogo.tipo_precio || 'mayor',
+          descuentoGlobal: catalogo.descuento_global,
+          descuentoIndividual: cp.descuento_individual,
+          precioPersonalizado: cp.precio_personalizado,
+        });
 
         return {
           ...producto,
@@ -1339,7 +1352,7 @@ export const api = {
       .in('id', ids);
 
     if (error) handleSupabaseError(error);
-    return (data as Producto[]) || [];
+    return ordenarProductosSegunIds((data as Producto[]) || [], ids);
   },
 
   // ==================== MOVIMIENTOS DE STOCK ====================
@@ -1399,13 +1412,13 @@ export const api = {
     const producto = await this.obtenerProducto(ajuste.producto_id);
     if (!producto) throw new ApiError('Producto no encontrado', 404);
 
-    const stockActual = (producto as any).stock_actual ?? 0;
+    const stockActual = producto.stock_actual ?? 0;
     const diferencia = ajuste.cantidad_real - stockActual;
 
     // 2. Actualizar stock en productos
     const { error: updateError } = await supabase
       .from(TABLA_PRODUCTOS)
-      .update({ stock_actual: ajuste.cantidad_real } as any) // Cast as any because type might not exist yet
+      .update({ stock_actual: ajuste.cantidad_real })
       .eq('id', ajuste.producto_id);
     if (updateError) handleSupabaseError(updateError);
 
@@ -1444,9 +1457,9 @@ export const api = {
     if (e1) handleSupabaseError(e1);
 
     const alertas: AlertaStock[] = [];
-    for (const p of (data || [])) {
-      const stockActual = (p as any).stock_actual ?? 0;
-      const stockMinimo = (p as any).stock_minimo ?? 0;
+    for (const p of ((data as ProductoStockAlertaRow[] | null) || [])) {
+      const stockActual = p.stock_actual ?? 0;
+      const stockMinimo = p.stock_minimo ?? 0;
       if (stockActual <= stockMinimo) {
         alertas.push({
           producto_id: p.id,
@@ -1525,13 +1538,14 @@ export const api = {
         continue;
       }
 
-      const stockActual = (producto as any)?.stock_actual ?? 0;
-      const factorConversion = (producto as any)?.factor_conversion ?? 1;
+      const productoStock = producto as ProductoStockSnapshot | null;
+      const stockActual = productoStock?.stock_actual ?? 0;
+      const factorConversion = productoStock?.factor_conversion ?? 1;
       const cantidadEnUnidadStock = item.cantidad * factorConversion;
       const nuevoStock = stockActual + cantidadEnUnidadStock;
 
       // Calcular costo promedio ponderado
-      const costoActual = (producto as any)?.costo ?? 0;
+      const costoActual = productoStock?.costo ?? 0;
       let nuevoCosto = item.costo_unitario / factorConversion; // Costo por unidad de stock
       if (stockActual > 0 && costoActual > 0) {
         nuevoCosto = ((stockActual * costoActual) + (cantidadEnUnidadStock * (item.costo_unitario / factorConversion))) / nuevoStock;
@@ -1786,8 +1800,8 @@ export const api = {
       .select('clave, valor');
     if (error) handleSupabaseError(error);
     const config: Record<string, string> = {};
-    for (const row of (data || [])) {
-      config[(row as any).clave] = (row as any).valor;
+    for (const row of ((data as ConfigRow[] | null) || [])) {
+      config[row.clave] = row.valor;
     }
     return config;
   },

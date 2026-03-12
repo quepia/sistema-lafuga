@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Percent } from "lucide-react"
 import {
   Dialog,
@@ -44,23 +44,12 @@ type TipoDescuento = "porcentaje" | "monto"
 /**
  * Dialog for applying a global discount to the entire sale
  */
-export function GlobalDiscountDialog({ open, onOpenChange, subtotal, onApply }: Props) {
+function GlobalDiscountDialogStateful({ open, onOpenChange, subtotal, onApply }: Props) {
   const [tipo, setTipo] = useState<TipoDescuento>("porcentaje")
   const [porcentaje, setPorcentaje] = useState(10)
   const [montoFijo, setMontoFijo] = useState(0)
   const [motivo, setMotivo] = useState(MOTIVOS_COMUNES[0])
   const [motivoCustom, setMotivoCustom] = useState("")
-
-  // Reset values when dialog opens
-  useEffect(() => {
-    if (open) {
-      setTipo("porcentaje")
-      setPorcentaje(10)
-      setMontoFijo(0)
-      setMotivo(MOTIVOS_COMUNES[0])
-      setMotivoCustom("")
-    }
-  }, [open])
 
   const calcularDescuento = () => {
     if (tipo === "porcentaje") {
@@ -217,6 +206,17 @@ export function GlobalDiscountDialog({ open, onOpenChange, subtotal, onApply }: 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export function GlobalDiscountDialog(props: Props) {
+  const { open, subtotal } = props
+
+  return (
+    <GlobalDiscountDialogStateful
+      key={`${subtotal}-${open ? "open" : "closed"}`}
+      {...props}
+    />
   )
 }
 

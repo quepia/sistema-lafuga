@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { AlertTriangle, Check } from "lucide-react"
 import {
   Dialog,
@@ -25,7 +25,6 @@ import {
   requiereAutorizacion,
   getNivelAutorizacionDescuento,
   formatearPrecio,
-  UserRole,
 } from "@/lib/supabase-utils"
 
 interface Props {
@@ -44,7 +43,7 @@ type TipoAjuste = "porcentaje" | "monto" | "fijo"
  * Dialog for editing the price of a line item in a sale
  * Supports percentage discounts, fixed amount discounts, or custom prices
  */
-export function EditPriceDialog({
+function EditPriceDialogStateful({
   open,
   onOpenChange,
   producto,
@@ -59,18 +58,6 @@ export function EditPriceDialog({
   const [precioFijoStr, setPrecioFijoStr] = useState(precioActual.toString())
   const [motivo, setMotivo] = useState("")
   const [tipoPrecioSeleccionado, setTipoPrecioSeleccionado] = useState<"menor" | "mayor">(tipoPrecioActual)
-
-  // Reset values when dialog opens
-  useEffect(() => {
-    if (open) {
-      setTipoAjuste("porcentaje")
-      setPorcentajeStr("0")
-      setMontoDescuentoStr("0")
-      setPrecioFijoStr(precioActual.toString())
-      setMotivo("")
-      setTipoPrecioSeleccionado(tipoPrecioActual)
-    }
-  }, [open, precioActual, tipoPrecioActual])
 
   // Parse string values to numbers
   const porcentaje = parseFloat(porcentajeStr) || 0
@@ -327,6 +314,17 @@ export function EditPriceDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export function EditPriceDialog(props: Props) {
+  const { open, producto, tipoPrecioActual, precioActual } = props
+
+  return (
+    <EditPriceDialogStateful
+      key={`${producto.id}-${tipoPrecioActual}-${precioActual}-${open ? "open" : "closed"}`}
+      {...props}
+    />
   )
 }
 

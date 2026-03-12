@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, Venta, ApiError, VentaProductoExtendido } from "@/lib/api"
+import { api, Venta, VentaProducto, ApiError, VentaProductoExtendido } from "@/lib/api"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 const ITEMS_PER_PAGE = 20
@@ -97,7 +97,7 @@ export default function SalesHistoryView() {
     }
 
     // Type guard or helper to check for extended product properties
-    const isExtended = (p: any): p is VentaProductoExtendido => {
+    const isExtended = (p: VentaProducto | VentaProductoExtendido): p is VentaProductoExtendido => {
         return 'tipo_precio' in p || 'descuento_linea' in p;
     }
 
@@ -284,7 +284,7 @@ export default function SalesHistoryView() {
                                     Productos ({selectedSale.productos.length})
                                 </p>
                                 <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                                    {selectedSale.productos.map((prod: any, idx) => {
+                                    {selectedSale.productos.map((prod, idx) => {
                                         const isCustom = isExtended(prod) && prod.tipo_precio === 'custom';
 
                                         return (

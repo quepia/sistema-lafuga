@@ -67,8 +67,8 @@ export default function StockProductosPage() {
 
   // Filter products by stock status client-side
   const productosFiltrados = productos.filter((p) => {
-    const stock = (p as any).stock_actual ?? 0
-    const minimo = (p as any).stock_minimo ?? 0
+    const stock = p.stock_actual ?? 0
+    const minimo = p.stock_minimo ?? 0
     switch (filtroStock) {
       case "con_stock":
         return stock > 0
@@ -149,9 +149,9 @@ export default function StockProductosPage() {
                   </TableHeader>
                   <TableBody>
                     {productosFiltrados.map((producto) => {
-                      const stockActual = (producto as any).stock_actual ?? 0
-                      const stockMinimo = (producto as any).stock_minimo ?? 0
-                      const stockMaximo = (producto as any).stock_maximo ?? null
+                      const stockActual = producto.stock_actual ?? 0
+                      const stockMinimo = producto.stock_minimo ?? 0
+                      const stockMaximo = producto.stock_maximo ?? null
                       const esBajoStock = stockMinimo > 0 && stockActual <= stockMinimo
                       const esCritico = stockMinimo > 0 && stockActual <= stockMinimo * 0.5
                       const sinStock = stockActual <= 0

@@ -187,7 +187,7 @@ export default function ProductHistoryView() {
                                                     {item.id_usuario ? 'Usuario' : 'Sistema'}
                                                 </div>
                                                 {item.motivo && (
-                                                    <div className="text-[10px] italic mt-1">"{item.motivo}"</div>
+                                                    <div className="text-[10px] italic mt-1">&quot;{item.motivo}&quot;</div>
                                                 )}
                                             </TableCell>
                                         </TableRow>

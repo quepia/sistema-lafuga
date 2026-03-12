@@ -66,16 +66,56 @@ export default function BarcodeScanner({ onScan, onError, active = true }: Barco
 
   // Efectos
   useEffect(() => {
-    if (active) {
-      startCamera()
-    } else {
+    if (!active) {
       stopCamera()
+      return () => {
+        stopCamera()
+      }
     }
 
+    let cancelled = false
+
+    const initCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        })
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+        }
+        setError(null)
+        setHasPermission(true)
+      } catch (err) {
+        if (cancelled) {
+          return
+        }
+
+        console.error("Error accessing camera:", err)
+        setHasPermission(false)
+        const errorMsg = err instanceof Error ? err.message : "No se pudo acceder a la camara"
+        setError(errorMsg)
+        onError?.(errorMsg)
+      }
+    }
+
+    void initCamera()
+
     return () => {
+      cancelled = true
       stopCamera()
     }
-  }, [active])
+  }, [active, onError])
 
   // Estado de carga
   if (hasPermission === null) {

@@ -1,8 +1,13 @@
 /* eslint-disable jsx-a11y/alt-text */
-import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer';
-import { Producto, ProductoCatalogo, CamposVisibles } from "@/lib/supabase";
-import { formatearPrecio, calcularPrecioFinal } from "@/lib/pdf-utils";
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { Producto, ProductoCatalogo, CamposVisibles, CatalogoTipoPrecio } from "@/lib/supabase";
+import { formatearPrecio } from "@/lib/pdf-utils";
+import {
+    calcularPrecioCatalogoFinal,
+    obtenerDescripcionTipoPrecio,
+    obtenerPrecioBaseCatalogo,
+    obtenerTextoAjustePorcentaje,
+} from "@/lib/catalogo-utils";
 
 // Register fonts if needed, otherwise use standard fonts
 // Font.register({
@@ -221,11 +226,13 @@ interface CatalogPDFProps {
     clienteNombre: string;
     productos: (Producto | ProductoCatalogo)[];
     camposVisibles: CamposVisibles;
+    tipoPrecio?: CatalogoTipoPrecio;
     descuentoGlobal: number;
     getDescuentoIndividual?: (productoId: string) => number;
     getPrecioPersonalizado?: (productoId: string) => number | null;
     logoBase64?: string;
     productImagesBase64?: Record<string, string>;
+    footerText?: string;
 }
 
 export function CatalogPDFDocument({
@@ -233,11 +240,13 @@ export function CatalogPDFDocument({
     clienteNombre,
     productos,
     camposVisibles,
+    tipoPrecio = 'mayor',
     descuentoGlobal,
     getDescuentoIndividual,
     getPrecioPersonalizado,
     logoBase64,
     productImagesBase64 = {},
+    footerText = 'Los precios pueden variar sin previo aviso',
 }: CatalogPDFProps) {
     const currentDate = new Date().toLocaleDateString('es-AR', {
         year: 'numeric',
@@ -265,10 +274,13 @@ export function CatalogPDFDocument({
                             </View>
                         </View>
                         <Text style={styles.catalogTitle}>{titulo}</Text>
-                        {descuentoGlobal > 0 && (
+                        <Text style={{ fontSize: 9, color: '#DCEEFF', marginTop: 4 }}>
+                            {obtenerDescripcionTipoPrecio(tipoPrecio)}
+                        </Text>
+                        {descuentoGlobal !== 0 && (
                             <View style={styles.globalDiscountBadge}>
                                 <Text style={styles.globalDiscountText}>
-                                    Descuento Global: {descuentoGlobal}%
+                                    {obtenerTextoAjustePorcentaje(descuentoGlobal)}
                                 </Text>
                             </View>
                         )}
@@ -304,13 +316,19 @@ export function CatalogPDFDocument({
                             ? producto.precio_personalizado
                             : (getPrecioPersonalizado?.(producto.id) ?? null);
 
-                        const precioBase = precioPersonalizado ?? producto.precio_mayor;
+                        const precioBase = obtenerPrecioBaseCatalogo(producto, tipoPrecio);
                         const precioFinal = 'precio_final' in producto
                             ? producto.precio_final
-                            : calcularPrecioFinal(precioBase, descuentoGlobal, descuentoIndividual);
+                            : calcularPrecioCatalogoFinal({
+                                producto,
+                                tipoPrecio,
+                                descuentoGlobal,
+                                descuentoIndividual,
+                                precioPersonalizado,
+                            });
 
-                        const tieneDescuento = descuentoGlobal > 0 || descuentoIndividual > 0;
-                        const totalDescuento = descuentoGlobal + descuentoIndividual;
+                        const ajusteTotal = descuentoGlobal + descuentoIndividual;
+                        const tieneAjuste = precioPersonalizado !== null || ajusteTotal !== 0;
 
                         const imageSrc = productImagesBase64[producto.id];
 
@@ -323,11 +341,17 @@ export function CatalogPDFDocument({
                                         ) : (
                                             <Text style={{ fontSize: 20, color: '#CCCCCC' }}>📦</Text>
                                         )}
-                                        {tieneDescuento && (
-                                            <View style={styles.cardDiscountBadge}>
-                                                <Text style={styles.cardDiscountText}>-{totalDescuento}%</Text>
+                                        {precioPersonalizado !== null ? (
+                                            <View style={{ ...styles.cardDiscountBadge, backgroundColor: '#F59E0B' }}>
+                                                <Text style={styles.cardDiscountText}>Manual</Text>
                                             </View>
-                                        )}
+                                        ) : tieneAjuste ? (
+                                            <View style={styles.cardDiscountBadge}>
+                                                <Text style={styles.cardDiscountText}>
+                                                    {obtenerTextoAjustePorcentaje(ajusteTotal)}
+                                                </Text>
+                                            </View>
+                                        ) : null}
                                     </View>
                                 )}
 
@@ -353,9 +377,9 @@ export function CatalogPDFDocument({
                                     {camposVisibles.precio && (
                                         <View style={styles.priceContainer}>
                                             <View>
-                                                {tieneDescuento && (
+                                                {tieneAjuste && (
                                                     <Text style={styles.priceOriginal}>
-                                                        {formatearPrecio(producto.precio_mayor)}
+                                                        {formatearPrecio(precioBase)}
                                                     </Text>
                                                 )}
                                                 <Text style={styles.priceFinal}>
@@ -370,9 +394,7 @@ export function CatalogPDFDocument({
                     })}
                 </View>
 
-                <Text style={styles.footer} fixed>
-                    Los precios pueden variar sin previo aviso • Catálogo válido por 7 días
-                </Text>
+                <Text style={styles.footer} fixed>{footerText}</Text>
             </Page>
         </Document>
     );

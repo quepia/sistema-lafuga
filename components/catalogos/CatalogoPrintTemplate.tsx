@@ -1,8 +1,13 @@
 "use client"
 
-import Image from "next/image"
-import { Producto, ProductoCatalogo, CamposVisibles } from "@/lib/supabase"
-import { formatearPrecio, calcularPrecioFinal } from "@/lib/pdf-utils"
+import { Producto, ProductoCatalogo, CamposVisibles, CatalogoTipoPrecio } from "@/lib/supabase"
+import { formatearPrecio } from "@/lib/pdf-utils"
+import {
+    calcularPrecioCatalogoFinal,
+    obtenerDescripcionTipoPrecio,
+    obtenerPrecioBaseCatalogo,
+    obtenerTextoAjustePorcentaje,
+} from "@/lib/catalogo-utils"
 
 interface CatalogoTemplatesProps {
     id?: string;
@@ -10,12 +15,14 @@ interface CatalogoTemplatesProps {
     clienteNombre: string;
     productos: (Producto | ProductoCatalogo)[];
     camposVisibles: CamposVisibles;
+    tipoPrecio?: CatalogoTipoPrecio;
     descuentoGlobal: number;
     getDescuentoIndividual?: (productoId: string) => number;
     getPrecioPersonalizado?: (productoId: string) => number | null;
     fechaGeneracion?: Date;
     logoSrc?: string;
     productImages?: Record<string, string>;
+    footerText?: string;
 }
 
 export function CatalogoPrintTemplate({
@@ -24,12 +31,14 @@ export function CatalogoPrintTemplate({
     clienteNombre,
     productos,
     camposVisibles,
+    tipoPrecio = "mayor",
     descuentoGlobal,
     getDescuentoIndividual,
     getPrecioPersonalizado,
     fechaGeneracion = new Date(),
     logoSrc = "/LogoLaFuga.svg",
     productImages = {},
+    footerText,
 }: CatalogoTemplatesProps) {
 
     const formatDate = (date: Date) => {
@@ -39,6 +48,8 @@ export function CatalogoPrintTemplate({
             day: 'numeric',
         });
     };
+
+    const resolvedFooterText = footerText || `Catalogo generado el ${formatDate(fechaGeneracion)} • La Fuga`;
 
     return (
         <div
@@ -74,6 +85,9 @@ export function CatalogoPrintTemplate({
                             <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>La Fuga</h1>
                             <p style={{ color: '#6CBEFA', fontSize: '0.875rem', margin: 0 }}>Villa Carlos Paz</p>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.5rem', margin: 0 }}>{titulo}</h2>
+                            <p style={{ color: '#DCEEFF', fontSize: '0.75rem', marginTop: '0.35rem', marginBottom: 0 }}>
+                                {obtenerDescripcionTipoPrecio(tipoPrecio)}
+                            </p>
                         </div>
                     </div>
 
@@ -107,13 +121,19 @@ export function CatalogoPrintTemplate({
                             ? producto.precio_personalizado
                             : (getPrecioPersonalizado?.(producto.id) ?? null);
 
-                        const precioBase = precioPersonalizado ?? producto.precio_mayor;
+                        const precioBase = obtenerPrecioBaseCatalogo(producto, tipoPrecio);
                         const precioFinal = 'precio_final' in producto
                             ? producto.precio_final
-                            : calcularPrecioFinal(precioBase, descuentoGlobal, descuentoIndividual);
+                            : calcularPrecioCatalogoFinal({
+                                producto,
+                                tipoPrecio,
+                                descuentoGlobal,
+                                descuentoIndividual,
+                                precioPersonalizado,
+                            });
 
-                        const tieneDescuento = descuentoGlobal > 0 || descuentoIndividual > 0;
-                        const totalDescuento = descuentoGlobal + descuentoIndividual;
+                        const ajusteTotal = descuentoGlobal + descuentoIndividual;
+                        const tieneAjuste = precioPersonalizado !== null || ajusteTotal !== 0;
 
                         // Use preloaded image if available, strict fallback or url as fallback
                         const imageSrc = productImages[producto.id] || producto.image_url;
@@ -167,12 +187,19 @@ export function CatalogoPrintTemplate({
                                         <div style={{ marginTop: 'auto' }}>
                                             {camposVisibles.precio && (
                                                 <div style={{ marginTop: '0.5rem', textAlign: 'right' }}>
-                                                    {tieneDescuento && (
+                                                    {precioPersonalizado !== null ? (
                                                         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                                            <span style={{ fontSize: '0.625rem', backgroundColor: '#fee2e2', color: '#dc2626', padding: '0.125rem 0.375rem', borderRadius: '9999px', fontWeight: 'bold', marginRight: '0.5rem' }}>
-                                                                -{totalDescuento}%
+                                                            <span style={{ fontSize: '0.625rem', backgroundColor: '#FEF3C7', color: '#B45309', padding: '0.125rem 0.375rem', borderRadius: '9999px', fontWeight: 'bold', marginRight: '0.5rem' }}>
+                                                                Manual
                                                             </span>
-                                                            <span style={{ fontSize: '0.75rem', color: '#9ca3af', textDecoration: 'line-through' }}>{formatearPrecio(producto.precio_mayor)}</span>
+                                                            <span style={{ fontSize: '0.75rem', color: '#9ca3af', textDecoration: 'line-through' }}>{formatearPrecio(precioBase)}</span>
+                                                        </div>
+                                                    ) : tieneAjuste && (
+                                                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '0.25rem' }}>
+                                                            <span style={{ fontSize: '0.625rem', backgroundColor: ajusteTotal > 0 ? '#fee2e2' : '#FFEDD5', color: ajusteTotal > 0 ? '#dc2626' : '#C2410C', padding: '0.125rem 0.375rem', borderRadius: '9999px', fontWeight: 'bold', marginRight: '0.5rem' }}>
+                                                                {obtenerTextoAjustePorcentaje(ajusteTotal)}
+                                                            </span>
+                                                            <span style={{ fontSize: '0.75rem', color: '#9ca3af', textDecoration: 'line-through' }}>{formatearPrecio(precioBase)}</span>
                                                         </div>
                                                     )}
                                                     <div style={{ fontWeight: 'bold', color: '#006AC0', fontSize: '1.125rem' }}>
@@ -191,7 +218,7 @@ export function CatalogoPrintTemplate({
 
             {/* Footer */}
             <div style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', color: '#9ca3af', borderTop: '1px solid #e5e7eb', margin: '0 1.5rem', marginTop: '1rem' }}>
-                Catálogo generado el {formatDate(fechaGeneracion)} • La Fuga
+                {resolvedFooterText}
             </div>
         </div>
     )

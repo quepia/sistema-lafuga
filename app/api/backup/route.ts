@@ -46,7 +46,7 @@ export async function POST() {
 
     // Exportar todos los productos paginando (Supabase limita a 1000 por query)
     const PAGE_SIZE = 1000;
-    const allProductos: any[] = [];
+    const allProductos: ExportData["productos"] = [];
     let from = 0;
     while (true) {
       const { data: batch, error: prodError } = await supabase
@@ -74,7 +74,7 @@ export async function POST() {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-    const allVentas: any[] = [];
+    const allVentas: ExportData["ventas"] = [];
     from = 0;
     while (true) {
       const { data: batch, error: ventasError } = await supabase
