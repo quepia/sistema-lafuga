@@ -17,11 +17,11 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { searchProductImage } from "@/app/actions/image-search-actions";
+import { ProductImageActions } from "@/lib/product-image-actions";
 import { toast } from "sonner";
 import { ImageUploadDialog } from "./ImageUploadDialog";
 
-interface ProductImageProps {
+interface ProductImageProps extends ProductImageActions {
     productId: string;
     productName: string;
     barcode: string | null;
@@ -54,6 +54,10 @@ export function ProductImage({
     barcode,
     imageUrl,
     imageSource,
+    searchProductImage,
+    uploadProductImage,
+    setManualProductImage,
+    deleteProductImage,
     className,
     variant = "square",
     showSyncButton = false,
@@ -218,6 +222,9 @@ export function ProductImage({
                 productId={productId}
                 productName={productName}
                 currentImageUrl={localImageUrl}
+                uploadProductImage={uploadProductImage}
+                setManualProductImage={setManualProductImage}
+                deleteProductImage={deleteProductImage}
                 onSuccess={(url: string | null) => {
                     if (url) {
                         setLocalImageUrl(url);

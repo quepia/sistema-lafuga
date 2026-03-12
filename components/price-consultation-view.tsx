@@ -26,6 +26,7 @@ import { DeleteProductDialog } from "@/components/productos/DeleteProductDialog"
 import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 import { ProductImage } from "@/components/productos/ProductImage"
 import { api, ApiError } from "@/lib/api"
+import { ProductImageActions } from "@/lib/product-image-actions"
 
 
 function getStockStatus(producto: Producto): { label: string; color: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } | null {
@@ -39,7 +40,14 @@ function getStockStatus(producto: Producto): { label: string; color: string; var
 
 const ITEMS_PER_PAGE = 20
 
-export default function PriceConsultationView() {
+type PriceConsultationViewProps = ProductImageActions
+
+export default function PriceConsultationView({
+  searchProductImage,
+  uploadProductImage,
+  setManualProductImage,
+  deleteProductImage,
+}: PriceConsultationViewProps) {
   // Search state with debounce
   const [searchInput, setSearchInput] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -327,6 +335,10 @@ export default function PriceConsultationView() {
                     variant="banner"
                     showSyncButton={true}
                     showUploadButton={true}
+                    searchProductImage={searchProductImage}
+                    uploadProductImage={uploadProductImage}
+                    setManualProductImage={setManualProductImage}
+                    deleteProductImage={deleteProductImage}
                   />
                 </div>
 

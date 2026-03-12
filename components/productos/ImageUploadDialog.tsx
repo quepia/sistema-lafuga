@@ -35,7 +35,6 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
-    AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -43,10 +42,10 @@ import {
     validateImageFile,
     formatBytes,
 } from "@/lib/image-optimizer";
-import { uploadProductImage, setManualProductImage, deleteProductImage } from "@/app/actions/image-search-actions";
+import { ProductImageActions } from "@/lib/product-image-actions";
 import { toast } from "sonner";
 
-interface ImageUploadDialogProps {
+interface ImageUploadDialogProps extends Pick<ProductImageActions, "uploadProductImage" | "setManualProductImage" | "deleteProductImage"> {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     productId: string;
@@ -63,6 +62,9 @@ export function ImageUploadDialog({
     productId,
     productName,
     currentImageUrl,
+    uploadProductImage,
+    setManualProductImage,
+    deleteProductImage,
     onSuccess,
 }: ImageUploadDialogProps) {
     const [state, setState] = useState<UploadState>("idle");
@@ -141,7 +143,6 @@ export function ImageUploadDialog({
         if (file) {
             processFile(file);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
