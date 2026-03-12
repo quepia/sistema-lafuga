@@ -1,7 +1,13 @@
 "use client"
 
 import { useState, useCallback } from 'react';
-import { CatalogoProducto, CamposVisibles, CAMPOS_VISIBLES_DEFAULT, CatalogoTipoPrecio } from '@/lib/supabase';
+import {
+  Catalogo,
+  CatalogoProducto,
+  CamposVisibles,
+  CAMPOS_VISIBLES_DEFAULT,
+  CatalogoTipoPrecio,
+} from '@/lib/supabase';
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
@@ -157,6 +163,35 @@ export function useCatalogoBuilder() {
     });
   }, []);
 
+  const loadCatalogo = useCallback((catalogo: Catalogo) => {
+    const productosSeleccionados = new Map<string, CatalogoProducto>();
+
+    catalogo.productos.forEach((producto) => {
+      productosSeleccionados.set(producto.producto_id, {
+        producto_id: producto.producto_id,
+        descuento_individual: producto.descuento_individual ?? 0,
+        precio_personalizado: producto.precio_personalizado ?? null,
+      });
+    });
+
+    const milisegundosRestantes = new Date(catalogo.expires_at).getTime() - Date.now();
+    const duracionDias = Math.max(1, Math.ceil(milisegundosRestantes / (24 * 60 * 60 * 1000)));
+
+    setState({
+      step: 1,
+      clienteNombre: catalogo.cliente_nombre,
+      titulo: catalogo.titulo,
+      tipoPrecio: catalogo.tipo_precio || 'mayor',
+      duracionDias,
+      productosSeleccionados,
+      descuentoGlobal: catalogo.descuento_global ?? 0,
+      camposVisibles: {
+        ...CAMPOS_VISIBLES_DEFAULT,
+        ...catalogo.campos_visibles,
+      },
+    });
+  }, []);
+
   // Convert Map to array for saving
   const getProductosArray = useCallback((): CatalogoProducto[] => {
     return Array.from(state.productosSeleccionados.values());
@@ -205,6 +240,7 @@ export function useCatalogoBuilder() {
     setDuracionDias,
     // Utilities
     reset,
+    loadCatalogo,
     getProductosArray,
     getProductoIds,
     getProductoOrder,

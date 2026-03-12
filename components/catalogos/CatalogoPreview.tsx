@@ -5,16 +5,13 @@ import { Producto, ProductoCatalogo, CamposVisibles, CatalogoTipoPrecio } from "
 import { formatearPrecio } from "@/lib/pdf-utils"
 import {
   calcularPrecioCatalogoFinal,
+  filtrarProductosCatalogoDisponibles,
   obtenerDescripcionTipoPrecio,
   obtenerPrecioBaseCatalogo,
   obtenerTextoAjustePorcentaje,
 } from "@/lib/catalogo-utils"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-
-interface ProductoConStock extends Producto {
-  stock_actual?: number;
-}
 
 interface CatalogoPreviewProps {
   id?: string;
@@ -50,6 +47,8 @@ export function CatalogoPreview({
       day: "numeric",
     });
   };
+
+  const productosVisibles = filtrarProductosCatalogoDisponibles(productos);
 
   return (
     <div id={id} className="overflow-hidden rounded-lg bg-white font-sans shadow-xl">
@@ -100,7 +99,7 @@ export function CatalogoPreview({
             <div className="flex items-center gap-4 text-sm text-white/80">
               <div>
                 <p className="text-xs text-white/60">Productos</p>
-                <p className="text-2xl font-bold text-[#FF1F8F]">{productos.length}</p>
+                <p className="text-2xl font-bold text-[#FF1F8F]">{productosVisibles.length}</p>
               </div>
               <div className="h-10 w-px bg-white/20" />
               <div>
@@ -113,8 +112,9 @@ export function CatalogoPreview({
       </header>
 
       <div className="bg-gray-50/50 p-6 md:p-8">
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {productos.map((producto) => {
+        {productosVisibles.length > 0 ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {productosVisibles.map((producto) => {
             const descuentoIndividual = "descuento_individual" in producto
               ? producto.descuento_individual
               : (getDescuentoIndividual?.(producto.id) ?? 0);
@@ -138,8 +138,7 @@ export function CatalogoPreview({
             const tieneAjuste = precioPersonalizado !== null || ajusteTotal !== 0;
             const ajusteEsDescuento = ajusteTotal > 0;
 
-            const stockActual = (producto as ProductoConStock).stock_actual;
-            const estaAgotado = stockActual === 0;
+            const stockActual = producto.stock_actual;
             const esUltimasUnidades = stockActual !== undefined && stockActual > 0 && stockActual <= 5;
 
             return (
@@ -156,11 +155,6 @@ export function CatalogoPreview({
                   </Badge>
                 ) : null}
 
-                {estaAgotado && (
-                  <Badge variant="destructive" className="absolute left-2 top-2 z-20 font-bold">
-                    Agotado
-                  </Badge>
-                )}
                 {esUltimasUnidades && (
                   <Badge className="absolute left-2 top-2 z-20 bg-orange-500 font-bold text-white hover:bg-orange-600">
                     Ultimas unidades
@@ -227,8 +221,13 @@ export function CatalogoPreview({
                 <div className="absolute bottom-0 left-0 right-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-[#006AC0] to-[#FF1F8F] transition-transform duration-300 group-hover:scale-x-100" />
               </Card>
             );
-          })}
-        </div>
+            })}
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-200 bg-white/80 p-10 text-center text-slate-500">
+            No hay productos disponibles con stock para mostrar en este catálogo.
+          </div>
+        )}
       </div>
 
       <div className="border-t bg-white p-6 text-center text-sm text-gray-500">

@@ -31,18 +31,15 @@ export default function CatalogoPublicoPage() {
       setError(null)
 
       try {
-        const catalogoData = await api.obtenerCatalogoPorToken(token)
+        const catalogoPublico = await api.obtenerCatalogoPublico(token)
 
-        if (!catalogoData) {
+        if (!catalogoPublico) {
           setError("Este catálogo no existe o ha expirado")
           return
         }
 
-        setCatalogo(catalogoData)
-
-        // Load products
-        const productosData = await api.obtenerProductosCatalogo(catalogoData)
-        setProductos(productosData)
+        setCatalogo(catalogoPublico.catalogo)
+        setProductos(catalogoPublico.productos)
       } catch (err) {
         console.error("Error loading catalog:", err)
         setError("Error al cargar el catálogo")

@@ -28,6 +28,7 @@ import { toast } from "sonner"
 import {
   Plus,
   Copy,
+  Pencil,
   Trash2,
   ExternalLink,
   RefreshCw,
@@ -189,6 +190,16 @@ export function CatalogoList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          asChild
+                          title="Editar catálogo"
+                        >
+                          <Link href={`/catalogos/${catalogo.id}/editar`}>
+                            <Pencil className="w-4 h-4" />
+                          </Link>
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

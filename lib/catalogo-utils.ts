@@ -1,4 +1,4 @@
-import { Producto, CatalogoTipoPrecio } from "@/lib/supabase";
+import { Catalogo, Producto, ProductoCatalogo, CatalogoTipoPrecio } from "@/lib/supabase";
 import { calcularPrecioFinal } from "@/lib/pdf-utils";
 
 interface CalcularPrecioCatalogoOptions {
@@ -48,6 +48,56 @@ export function ordenarProductosSegunIds<T extends { id: string }>(productos: T[
   return ids
     .map((id) => productosMap.get(id))
     .filter((producto): producto is T => producto !== undefined);
+}
+
+export function expandirProductosCatalogo(
+  catalogo: Pick<Catalogo, "productos" | "tipo_precio" | "descuento_global">,
+  productos: Producto[]
+): ProductoCatalogo[] {
+  const productosOrdenados = ordenarProductosSegunIds(
+    productos,
+    catalogo.productos.map((producto) => producto.producto_id)
+  );
+
+  const productosMap = new Map(productosOrdenados.map((producto) => [producto.id, producto]));
+
+  return catalogo.productos
+    .map((configuracionProducto) => {
+      const producto = productosMap.get(configuracionProducto.producto_id);
+      if (!producto) {
+        return null;
+      }
+
+      return {
+        ...producto,
+        descuento_individual: configuracionProducto.descuento_individual,
+        precio_personalizado: configuracionProducto.precio_personalizado,
+        precio_final: calcularPrecioCatalogoFinal({
+          producto,
+          tipoPrecio: catalogo.tipo_precio || "mayor",
+          descuentoGlobal: catalogo.descuento_global,
+          descuentoIndividual: configuracionProducto.descuento_individual,
+          precioPersonalizado: configuracionProducto.precio_personalizado,
+        }),
+      } as ProductoCatalogo;
+    })
+    .filter((producto): producto is ProductoCatalogo => producto !== null);
+}
+
+export function productoCatalogoEstaDisponible(
+  producto: Pick<Producto, "stock_actual" | "estado">
+): boolean {
+  if (producto.estado === "eliminado") {
+    return false;
+  }
+
+  return producto.stock_actual === undefined || producto.stock_actual === null || producto.stock_actual > 0;
+}
+
+export function filtrarProductosCatalogoDisponibles<T extends Pick<Producto, "stock_actual" | "estado">>(
+  productos: T[]
+): T[] {
+  return productos.filter(productoCatalogoEstaDisponible);
 }
 
 export function formatearDiasValidez(dias: number): string {

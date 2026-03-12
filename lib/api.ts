@@ -3,7 +3,10 @@
 
 import { supabase, Producto, ProductoUpdate, ProductoInsert, ProductoEnVenta, HistorialProducto, calcularMargen, Catalogo, CatalogoInsert, CatalogoProducto, CamposVisibles, ProductoCatalogo, CAMPOS_VISIBLES_DEFAULT, MovimientoStock, TipoMovimiento, TipoAjuste, AjusteStockInput, AlertaStock, Compra, CompraDetalle, CompraInsert, CompraDetalleInsert, CompraConDetalle, TipoDocumentoCompra, EstadoCompra, ComposicionCombo, ComposicionComboInsert, ConfiguracionSistema, MetodoCosteo, Proveedor, ProveedorInsert, ProveedorUpdate } from './supabase';
 import { logProductChange } from './supabase-utils';
-import { calcularPrecioCatalogoFinal, ordenarProductosSegunIds } from './catalogo-utils';
+import {
+  expandirProductosCatalogo,
+  ordenarProductosSegunIds,
+} from './catalogo-utils';
 
 const TABLA_PRODUCTOS = 'productos';
 const TABLA_VENTAS = 'ventas';
@@ -130,6 +133,10 @@ type ProductoStockAlertaRow = Pick<Producto, 'id' | 'nombre' | 'stock_actual' | 
 type ConfigRow = {
   clave: string;
   valor: string;
+};
+type CatalogoPublicoRpcResult = {
+  catalogo: Catalogo;
+  productos: Producto[];
 };
 
 // Clase de error personalizada para errores de API
@@ -1235,6 +1242,31 @@ export const api = {
     return data as Catalogo;
   },
 
+  async obtenerCatalogoPublico(token: string): Promise<{ catalogo: Catalogo; productos: ProductoCatalogo[] } | null> {
+    const { data, error } = await supabase.rpc('obtener_catalogo_publico', {
+      p_token: token,
+    });
+
+    if (error) {
+      handleSupabaseError(error);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const payload = data as CatalogoPublicoRpcResult;
+
+    if (!payload.catalogo) {
+      return null;
+    }
+
+    return {
+      catalogo: payload.catalogo,
+      productos: expandirProductosCatalogo(payload.catalogo, payload.productos || []),
+    };
+  },
+
   /**
    * Gets a catalog by ID (for editing)
    */
@@ -1315,29 +1347,7 @@ export const api = {
 
     if (error) handleSupabaseError(error);
 
-    const productosMap = new Map((data as Producto[]).map(p => [p.id, p]));
-
-    return catalogo.productos
-      .map(cp => {
-        const producto = productosMap.get(cp.producto_id);
-        if (!producto) return null;
-
-        const precioFinal = calcularPrecioCatalogoFinal({
-          producto,
-          tipoPrecio: catalogo.tipo_precio || 'mayor',
-          descuentoGlobal: catalogo.descuento_global,
-          descuentoIndividual: cp.descuento_individual,
-          precioPersonalizado: cp.precio_personalizado,
-        });
-
-        return {
-          ...producto,
-          descuento_individual: cp.descuento_individual,
-          precio_personalizado: cp.precio_personalizado,
-          precio_final: precioFinal,
-        } as ProductoCatalogo;
-      })
-      .filter((p): p is ProductoCatalogo => p !== null);
+    return expandirProductosCatalogo(catalogo, (data as Producto[]) || []);
   },
 
   /**

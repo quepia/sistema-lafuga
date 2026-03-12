@@ -18,6 +18,7 @@ import { CatalogoPrintTemplate } from "./CatalogoPrintTemplate"
 import { CamposVisibles } from "@/lib/supabase"
 import {
   calcularPrecioCatalogoFinal,
+  filtrarProductosCatalogoDisponibles,
   formatearDiasValidez,
   formatearFechaCatalogo,
   obtenerDescripcionTipoPrecio,
@@ -68,10 +69,15 @@ function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
   );
 }
 
-export function CatalogoWizard() {
+interface CatalogoWizardProps {
+  catalogoId?: string;
+}
+
+export function CatalogoWizard({ catalogoId }: CatalogoWizardProps) {
   const router = useRouter();
   const { user } = useAuth();
   const builder = useCatalogoBuilder();
+  const isEditing = Boolean(catalogoId);
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,19 +86,23 @@ export function CatalogoWizard() {
 
   const [isCreating, setIsCreating] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isLoadingCatalogo, setIsLoadingCatalogo] = useState(isEditing);
   const [pdfLogo, setPdfLogo] = useState<string>("/LogoLaFuga.svg");
   const [pdfImages, setPdfImages] = useState<Record<string, string>>({});
 
-  const [createdCatalogo, setCreatedCatalogo] = useState<{
+  const [savedCatalogo, setSavedCatalogo] = useState<{
     id: string;
     publicToken: string;
     expiresAt: string;
   } | null>(null);
+  const [showSavedState, setShowSavedState] = useState(false);
 
   const vigenciaTexto = obtenerTextoVigenciaDesdeDias(builder.state.duracionDias);
   const getProductoIds = builder.getProductoIds;
-  const currentStep = builder.state.step;
+  const loadCatalogoInBuilder = builder.loadCatalogo;
   const productosCount = builder.productosCount;
+  const productosVisiblesCatalogo = filtrarProductosCatalogoDisponibles(selectedProductosData);
+  const productosSinStockCount = selectedProductosData.length - productosVisiblesCatalogo.length;
 
   useEffect(() => {
     const searchProducts = async () => {
@@ -117,6 +127,48 @@ export function CatalogoWizard() {
   }, [searchQuery]);
 
   useEffect(() => {
+    if (!catalogoId) {
+      setIsLoadingCatalogo(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCatalogo = async () => {
+      setIsLoadingCatalogo(true);
+      try {
+        const catalogo = await api.obtenerCatalogo(catalogoId);
+
+        if (!isMounted) {
+          return;
+        }
+
+        loadCatalogoInBuilder(catalogo);
+        setSavedCatalogo({
+          id: catalogo.id,
+          publicToken: catalogo.public_token,
+          expiresAt: catalogo.expires_at,
+        });
+        setShowSavedState(false);
+      } catch (error) {
+        console.error("Error loading catalog:", error);
+        toast.error("No se pudo cargar el catálogo para editar");
+        router.push("/catalogos");
+      } finally {
+        if (isMounted) {
+          setIsLoadingCatalogo(false);
+        }
+      }
+    };
+
+    void loadCatalogo();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [catalogoId, loadCatalogoInBuilder, router]);
+
+  useEffect(() => {
     const loadSelectedProducts = async () => {
       const ids = getProductoIds();
       if (ids.length === 0) {
@@ -132,14 +184,17 @@ export function CatalogoWizard() {
       }
     };
 
-    if (currentStep >= 2) {
-      loadSelectedProducts();
-    }
-  }, [currentStep, getProductoIds, productosCount]);
+    void loadSelectedProducts();
+  }, [getProductoIds, productosCount]);
 
-  const handleCreateCatalogo = async (copyLinkAfterCreate: boolean) => {
+  const handleSaveCatalogo = async (copyLinkAfterSave: boolean) => {
     if (!builder.state.clienteNombre.trim()) {
       toast.error("Por favor ingresa el nombre del cliente");
+      return;
+    }
+
+    if (productosVisiblesCatalogo.length === 0) {
+      toast.error("El catálogo no tiene productos disponibles con stock");
       return;
     }
 
@@ -149,7 +204,7 @@ export function CatalogoWizard() {
         Date.now() + builder.state.duracionDias * 24 * 60 * 60 * 1000
       ).toISOString();
 
-      const catalogo = await api.crearCatalogo({
+      const datosCatalogo = {
         cliente_nombre: builder.state.clienteNombre.trim(),
         titulo: builder.state.titulo.trim() || "Catálogo de Precios",
         tipo_precio: builder.state.tipoPrecio,
@@ -158,22 +213,46 @@ export function CatalogoWizard() {
         campos_visibles: builder.state.camposVisibles,
         productos: builder.getProductosArray(),
         creado_por: user?.email || undefined,
-      });
+      };
 
-      setCreatedCatalogo({
+      const catalogo = isEditing && catalogoId
+        ? await api.actualizarCatalogo(catalogoId, datosCatalogo)
+        : await api.crearCatalogo(datosCatalogo);
+
+      setSavedCatalogo({
         id: catalogo.id,
         publicToken: catalogo.public_token,
         expiresAt: catalogo.expires_at,
       });
+      setShowSavedState(!isEditing);
 
-      if (copyLinkAfterCreate) {
+      let linkCopiado = false;
+
+      if (copyLinkAfterSave) {
         const url = `${window.location.origin}/catalogo/${catalogo.public_token}`;
-        await navigator.clipboard.writeText(url);
-        toast.success(`Link copiado. Vigencia: ${formatearDiasValidez(builder.state.duracionDias)}`);
+        try {
+          await navigator.clipboard.writeText(url);
+          linkCopiado = true;
+        } catch (clipboardError) {
+          console.error("Error copying catalog link:", clipboardError);
+        }
+      }
+
+      if (linkCopiado) {
+        toast.success(
+          isEditing
+            ? "Catálogo actualizado y link copiado"
+            : `Catálogo creado y link copiado. Vigencia: ${formatearDiasValidez(builder.state.duracionDias)}`
+        );
+      } else {
+        toast.success(isEditing ? "Catálogo actualizado correctamente" : "Catálogo creado correctamente");
+        if (copyLinkAfterSave) {
+          toast.error("El catálogo se guardó, pero no se pudo copiar el link");
+        }
       }
     } catch (error) {
-      console.error("Error creating catalog:", error);
-      toast.error("Error al crear el catálogo");
+      console.error("Error saving catalog:", error);
+      toast.error(isEditing ? "Error al actualizar el catálogo" : "Error al crear el catálogo");
     } finally {
       setIsCreating(false);
     }
@@ -195,7 +274,7 @@ export function CatalogoWizard() {
 
       const productImages: Record<string, string> = {};
       await Promise.all(
-        selectedProductosData.map(async (producto) => {
+        productosVisiblesCatalogo.map(async (producto) => {
           if (!producto.image_url) return;
           const imageBase64 = await urlToBase64(producto.image_url);
           if (imageBase64) {
@@ -230,9 +309,9 @@ export function CatalogoWizard() {
   };
 
   const handleCopyLink = async () => {
-    if (!createdCatalogo) return;
+    if (!savedCatalogo) return;
 
-    const url = `${window.location.origin}/catalogo/${createdCatalogo.publicToken}`;
+    const url = `${window.location.origin}/catalogo/${savedCatalogo.publicToken}`;
     await navigator.clipboard.writeText(url);
     toast.success("Link copiado al portapapeles");
   };
@@ -241,16 +320,16 @@ export function CatalogoWizard() {
     try {
       let message = "Hola! Te compartimos tu catalogo personalizado de *La Fuga*.\n\n";
       message += `*Tipo de lista:* ${obtenerDescripcionTipoPrecio(builder.state.tipoPrecio)}\n`;
-      message += `*Vigencia:* ${createdCatalogo ? formatearFechaCatalogo(createdCatalogo.expiresAt) : formatearDiasValidez(builder.state.duracionDias)}\n`;
+      message += `*Vigencia:* ${savedCatalogo ? formatearFechaCatalogo(savedCatalogo.expiresAt) : formatearDiasValidez(builder.state.duracionDias)}\n`;
 
-      if (createdCatalogo) {
-        message += `*Link privado:* ${window.location.origin}/catalogo/${createdCatalogo.publicToken}\n`;
-        message += `*Valido hasta:* ${formatearFechaCatalogo(createdCatalogo.expiresAt)}\n`;
+      if (savedCatalogo) {
+        message += `*Link privado:* ${window.location.origin}/catalogo/${savedCatalogo.publicToken}\n`;
+        message += `*Valido hasta:* ${formatearFechaCatalogo(savedCatalogo.expiresAt)}\n`;
       }
 
       message += "\n*Productos seleccionados:*\n";
 
-      selectedProductosData.forEach((producto) => {
+      productosVisiblesCatalogo.forEach((producto) => {
         const config = builder.getProductoConfig(producto.id);
         const precioFinal = calcularPrecioCatalogoFinal({
           producto,
@@ -282,6 +361,17 @@ export function CatalogoWizard() {
     unidad: "Unidad",
   };
 
+  if (isLoadingCatalogo) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center rounded-lg border bg-white">
+        <div className="flex items-center gap-3 text-sm text-gray-500">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Cargando catálogo...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl">
       <div style={{ position: "fixed", top: "-10000px", left: 0, visibility: "hidden" }}>
@@ -289,7 +379,7 @@ export function CatalogoWizard() {
           id="catalogo-print-template"
           titulo={builder.state.titulo}
           clienteNombre={builder.state.clienteNombre}
-          productos={selectedProductosData}
+          productos={productosVisiblesCatalogo}
           camposVisibles={builder.state.camposVisibles}
           tipoPrecio={builder.state.tipoPrecio}
           descuentoGlobal={builder.state.descuentoGlobal}
@@ -347,6 +437,44 @@ export function CatalogoWizard() {
                   <X className="mr-1 h-3 w-3" />
                   Limpiar todo
                 </Button>
+              </div>
+            )}
+
+            {selectedProductosData.length > 0 && (
+              <div className="space-y-3 rounded-lg border bg-gray-50 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Productos incluidos</h3>
+                    <p className="text-sm text-gray-500">
+                      Desde acá también podes revisar el orden o quitar productos del link.
+                    </p>
+                  </div>
+                  <span className="text-sm text-gray-500">
+                    {productosVisiblesCatalogo.length} visible{productosVisiblesCatalogo.length !== 1 ? "s" : ""} de {builder.productosCount}
+                  </span>
+                </div>
+
+                {productosSinStockCount > 0 && (
+                  <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                    {productosSinStockCount} producto{productosSinStockCount !== 1 ? "s" : ""} sin stock no se mostrará{productosSinStockCount !== 1 ? "n" : ""} en el catálogo público.
+                  </p>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {selectedProductosData.map((producto) => (
+                    <CatalogoProductCard
+                      key={`selected-${producto.id}`}
+                      producto={producto}
+                      camposVisibles={{ foto: true, nombre: true, precio: true, codigo: true, descripcion: false, unidad: true }}
+                      tipoPrecio={builder.state.tipoPrecio}
+                      showCheckbox
+                      isSelected={builder.isProductoSelected(producto.id)}
+                      onToggle={builder.toggleProducto}
+                      selectionOrder={builder.getProductoOrder(producto.id)}
+                      compact
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
@@ -534,7 +662,7 @@ export function CatalogoWizard() {
             <div className="mt-6">
               <Label className="mb-2 block">Vista previa</Label>
               <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 p-4 sm:grid-cols-3">
-                {selectedProductosData.slice(0, 3).map((producto) => (
+                {productosVisiblesCatalogo.slice(0, 3).map((producto) => (
                   <CatalogoProductCard
                     key={producto.id}
                     producto={producto}
@@ -606,16 +734,22 @@ export function CatalogoWizard() {
                 <p className="font-medium text-gray-900">{formatearDiasValidez(builder.state.duracionDias)}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-500">Productos</p>
-                <p className="font-medium text-gray-900">{builder.productosCount}</p>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Productos visibles</p>
+                <p className="font-medium text-gray-900">{productosVisiblesCatalogo.length}</p>
               </div>
             </div>
+
+            {productosSinStockCount > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {productosSinStockCount} producto{productosSinStockCount !== 1 ? "s" : ""} sin stock quedará{productosSinStockCount !== 1 ? "n" : ""} oculto{productosSinStockCount !== 1 ? "s" : ""} en el catálogo.
+              </div>
+            )}
 
             <div className="max-h-[400px] overflow-y-auto rounded-lg border">
               <CatalogoPreview
                 titulo={builder.state.titulo}
                 clienteNombre={builder.state.clienteNombre || "Cliente"}
-                productos={selectedProductosData}
+                productos={productosVisiblesCatalogo}
                 camposVisibles={builder.state.camposVisibles}
                 tipoPrecio={builder.state.tipoPrecio}
                 descuentoGlobal={builder.state.descuentoGlobal}
@@ -626,11 +760,11 @@ export function CatalogoWizard() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
-              {!createdCatalogo ? (
+              {!showSavedState || isEditing ? (
                 <>
                   <Button
                     onClick={handleGeneratePDF}
-                    disabled={isGeneratingPDF || !builder.canProceed.step4}
+                    disabled={isGeneratingPDF || !builder.canProceed.step4 || productosVisiblesCatalogo.length === 0}
                     className="flex-1"
                     variant="outline"
                   >
@@ -641,9 +775,19 @@ export function CatalogoWizard() {
                     )}
                     Descargar PDF
                   </Button>
+                  {isEditing && savedCatalogo && (
+                    <Button
+                      onClick={handleCopyLink}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copiar link actual
+                    </Button>
+                  )}
                   <Button
-                    onClick={() => handleCreateCatalogo(true)}
-                    disabled={isCreating || !builder.canProceed.step4}
+                    onClick={() => handleSaveCatalogo(true)}
+                    disabled={isCreating || !builder.canProceed.step4 || productosVisiblesCatalogo.length === 0}
                     className="flex-1"
                   >
                     {isCreating ? (
@@ -651,12 +795,13 @@ export function CatalogoWizard() {
                     ) : (
                       <Link2 className="mr-2 h-4 w-4" />
                     )}
-                    Generar link privado
+                    {isEditing ? "Guardar cambios" : "Generar link privado"}
                   </Button>
                   <Button
                     onClick={handleCopyWhatsApp}
                     variant="outline"
                     className="flex-1"
+                    disabled={productosVisiblesCatalogo.length === 0}
                   >
                     <MessageCircle className="mr-2 h-4 w-4" />
                     Copiar WhatsApp
@@ -668,7 +813,7 @@ export function CatalogoWizard() {
                   <div className="flex items-center gap-2">
                     <Input
                       readOnly
-                      value={`${window.location.origin}/catalogo/${createdCatalogo.publicToken}`}
+                      value={`${window.location.origin}/catalogo/${savedCatalogo?.publicToken ?? ""}`}
                       className="flex-1 bg-white"
                     />
                     <Button onClick={handleCopyLink} variant="outline" size="icon">
@@ -676,7 +821,7 @@ export function CatalogoWizard() {
                     </Button>
                   </div>
                   <p className="mt-2 text-xs text-green-700">
-                    Vencimiento: {formatearFechaCatalogo(createdCatalogo.expiresAt)}
+                    Vencimiento: {savedCatalogo ? formatearFechaCatalogo(savedCatalogo.expiresAt) : "-"}
                   </p>
                   <Button
                     onClick={handleCopyWhatsApp}
