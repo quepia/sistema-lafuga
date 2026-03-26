@@ -64,6 +64,7 @@ export interface Producto {
   precio_menor: number;             // from CSV 'PRECIO_MENOR'
   unidad: string | null;            // from CSV 'UNIDAD'
   codigo_barra: string | null;      // from CSV 'CODIGO_BARRA'
+  codigos_barra?: string[];         // Related barcodes (principal first)
   ultima_actualizacion: string | null; // from CSV 'ULTIMA_ACTUALIZACION'
   created_at?: string;              // System timestamp
   updated_at?: string;              // System timestamp
@@ -161,6 +162,7 @@ export interface ProductoInsert {
   precio_menor?: number;
   unidad?: string | null;
   codigo_barra?: string | null;
+  codigos_barra?: string[];
   ultima_actualizacion?: string | null;
   // NEW FIELDS (Migration 003)
   descripcion?: string | null;
@@ -198,6 +200,7 @@ export interface ProductoUpdate {
   precio_menor?: number;
   unidad?: string | null;
   codigo_barra?: string | null;
+  codigos_barra?: string[];
   ultima_actualizacion?: string | null;
   // NEW FIELDS (Migration 003)
   descripcion?: string | null;

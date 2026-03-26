@@ -42,6 +42,14 @@ const ITEMS_PER_PAGE = 20
 
 type PriceConsultationViewProps = ProductImageActions
 
+function getProductBarcodes(producto: Producto): string[] {
+  if (producto.codigos_barra && producto.codigos_barra.length > 0) {
+    return producto.codigos_barra
+  }
+
+  return producto.codigo_barra ? [producto.codigo_barra] : []
+}
+
 export default function PriceConsultationView({
   searchProductImage,
   uploadProductImage,
@@ -398,9 +406,9 @@ export default function PriceConsultationView({
                 </div>
 
                 {/* Codigo de barras si existe */}
-                {producto.codigo_barra && (
+                {getProductBarcodes(producto).length > 0 && (
                   <div className="mt-3 text-xs text-muted-foreground font-mono">
-                    Cod. Barras: {producto.codigo_barra}
+                    Cod. Barras: {getProductBarcodes(producto).join(" | ")}
                   </div>
                 )}
               </CardContent>

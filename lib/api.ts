@@ -9,6 +9,7 @@ import {
 } from './catalogo-utils';
 
 const TABLA_PRODUCTOS = 'productos';
+const TABLA_PRODUCTO_CODIGOS = 'producto_codigos_barra';
 const TABLA_VENTAS = 'ventas';
 const TABLA_HISTORIAL = 'historial_productos';
 const TABLA_CATALOGOS = 'catalogos';
@@ -138,6 +139,10 @@ type CatalogoPublicoRpcResult = {
   catalogo: Catalogo;
   productos: Producto[];
 };
+type ProductoCodigoBarraRow = {
+  producto_id: string;
+  codigo_barra: string;
+};
 
 // Clase de error personalizada para errores de API
 export class ApiError extends Error {
@@ -157,6 +162,194 @@ function handleSupabaseError(error: { message: string; code?: string }): never {
     error.message || 'Error de base de datos',
     500,
     error.code
+  );
+}
+
+function normalizarCodigosBarra(codigos: Array<string | null | undefined>): string[] {
+  const vistos = new Set<string>();
+  const normalizados: string[] = [];
+
+  codigos.forEach((codigo) => {
+    const limpio = codigo?.trim();
+    if (!limpio || vistos.has(limpio)) return;
+    vistos.add(limpio);
+    normalizados.push(limpio);
+  });
+
+  return normalizados;
+}
+
+function fusionarCodigosProducto(
+  producto: Pick<Producto, 'codigo_barra' | 'codigos_barra'>,
+  relacionados: string[]
+): string[] {
+  return normalizarCodigosBarra([
+    producto.codigo_barra,
+    ...(producto.codigos_barra || []),
+    ...relacionados,
+  ]);
+}
+
+async function obtenerMapaCodigosBarra(productIds: string[]): Promise<Map<string, string[]>> {
+  const ids = Array.from(new Set(productIds.filter(Boolean)));
+  const mapa = new Map<string, string[]>();
+
+  if (ids.length === 0) {
+    return mapa;
+  }
+
+  const { data, error } = await supabase
+    .from(TABLA_PRODUCTO_CODIGOS)
+    .select('producto_id, codigo_barra')
+    .in('producto_id', ids);
+
+  if (error) handleSupabaseError(error);
+
+  (data as ProductoCodigoBarraRow[] | null)?.forEach((row) => {
+    const actuales = mapa.get(row.producto_id) || [];
+    actuales.push(row.codigo_barra);
+    mapa.set(row.producto_id, actuales);
+  });
+
+  return mapa;
+}
+
+async function adjuntarCodigosBarra(productos: Producto[]): Promise<Producto[]> {
+  const mapa = await obtenerMapaCodigosBarra(productos.map((producto) => producto.id));
+
+  return productos.map((producto) => {
+    const codigos = fusionarCodigosProducto(producto, mapa.get(producto.id) || []);
+    return {
+      ...producto,
+      codigo_barra: producto.codigo_barra || codigos[0] || null,
+      codigos_barra: codigos,
+    };
+  });
+}
+
+async function sincronizarFilasCodigosBarra(productId: string, codigos: string[]): Promise<void> {
+  const normalizados = normalizarCodigosBarra(codigos);
+
+  if (normalizados.length > 0) {
+    const { data: conflictos, error: conflictError } = await supabase
+      .from(TABLA_PRODUCTO_CODIGOS)
+      .select('codigo_barra, producto_id')
+      .in('codigo_barra', normalizados)
+      .neq('producto_id', productId);
+
+    if (conflictError) handleSupabaseError(conflictError);
+
+    if (conflictos && conflictos.length > 0) {
+      throw new ApiError(
+        `El código de barras ${conflictos[0].codigo_barra} ya está asociado a otro producto.`,
+        409
+      );
+    }
+  }
+
+  const { data: actuales, error: actualesError } = await supabase
+    .from(TABLA_PRODUCTO_CODIGOS)
+    .select('codigo_barra')
+    .eq('producto_id', productId);
+
+  if (actualesError) handleSupabaseError(actualesError);
+
+  const actualesSet = new Set(
+    ((actuales as Array<{ codigo_barra: string }> | null) || []).map((row) => row.codigo_barra)
+  );
+  const nuevosSet = new Set(normalizados);
+
+  const paraEliminar = Array.from(actualesSet).filter((codigo) => !nuevosSet.has(codigo));
+  const paraInsertar = normalizados.filter((codigo) => !actualesSet.has(codigo));
+
+  if (paraEliminar.length > 0) {
+    const { error: deleteError } = await supabase
+      .from(TABLA_PRODUCTO_CODIGOS)
+      .delete()
+      .eq('producto_id', productId)
+      .in('codigo_barra', paraEliminar);
+
+    if (deleteError) handleSupabaseError(deleteError);
+  }
+
+  if (paraInsertar.length > 0) {
+    const { error: insertError } = await supabase
+      .from(TABLA_PRODUCTO_CODIGOS)
+      .insert(
+        paraInsertar.map((codigo_barra) => ({
+          producto_id: productId,
+          codigo_barra,
+        }))
+      );
+
+    if (insertError) handleSupabaseError(insertError);
+  }
+}
+
+async function obtenerProductosFiltradosBase(params: {
+  categoria?: string;
+  precio_min?: number;
+  precio_max?: number;
+  incluirEliminados?: boolean;
+}): Promise<Producto[]> {
+  const { categoria, precio_min, precio_max, incluirEliminados = false } = params;
+  const productos: Producto[] = [];
+  const BATCH_SIZE = 500;
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase.from(TABLA_PRODUCTOS).select('*');
+
+    if (!incluirEliminados) {
+      query = query.neq('estado', 'eliminado');
+    }
+    if (categoria) {
+      query = query.eq('categoria', categoria);
+    }
+    if (precio_min !== undefined) {
+      query = query.gte('precio_menor', precio_min);
+    }
+    if (precio_max !== undefined) {
+      query = query.lte('precio_menor', precio_max);
+    }
+
+    const { data, error } = await query
+      .order('nombre', { ascending: true })
+      .range(offset, offset + BATCH_SIZE - 1);
+
+    if (error) handleSupabaseError(error);
+
+    const lote = (data as Producto[]) || [];
+    productos.push(...lote);
+    hasMore = lote.length === BATCH_SIZE;
+    offset += BATCH_SIZE;
+  }
+
+  return productos;
+}
+
+function productoCoincideBusqueda(producto: Producto, query: string): boolean {
+  const cleanQuery = query.trim().toLowerCase();
+  if (!cleanQuery) return true;
+
+  const nombre = producto.nombre?.toLowerCase() || '';
+  const id = producto.id?.toLowerCase() || '';
+  const codigos = fusionarCodigosProducto(producto, []).map((codigo) => codigo.toLowerCase());
+
+  if (!cleanQuery.includes(' ')) {
+    return (
+      nombre.includes(cleanQuery) ||
+      id.includes(cleanQuery) ||
+      codigos.some((codigo) => codigo.includes(cleanQuery))
+    );
+  }
+
+  const tokens = cleanQuery.split(/\s+/).filter(Boolean);
+  return (
+    tokens.every((token) => nombre.includes(token)) ||
+    id === cleanQuery ||
+    codigos.some((codigo) => codigo === cleanQuery)
   );
 }
 
@@ -187,6 +380,26 @@ export const api = {
   } = {}): Promise<ProductosPaginados> {
     const { query, categoria, precio_min, precio_max, incluirEliminados = false, limit = 50, offset = 0 } = params;
 
+    if (query && query.trim()) {
+      const productosBase = await obtenerProductosFiltradosBase({
+        categoria,
+        precio_min,
+        precio_max,
+        incluirEliminados,
+      });
+      const productosConCodigos = await adjuntarCodigosBarra(productosBase);
+      const filtrados = productosConCodigos.filter((producto) => productoCoincideBusqueda(producto, query));
+      const paginados = filtrados.slice(offset, offset + limit);
+
+      return {
+        total: filtrados.length,
+        limit,
+        offset,
+        count: paginados.length,
+        productos: paginados,
+      };
+    }
+
     // Base query builder
     const buildQuery = (head = false) => {
       let q = supabase.from(TABLA_PRODUCTOS).select('*', { count: 'exact', head });
@@ -202,41 +415,6 @@ export const api = {
       }
       if (precio_max !== undefined) {
         q = q.lte('precio_menor', precio_max);
-      }
-
-      // Improved Search Logic: Multi-word support
-      if (query && query.trim()) {
-        const cleanQuery = query.trim();
-        // Check if it's potentially an ID or Barcode (single word, no spaces usually)
-        const isSingleToken = !cleanQuery.includes(' ');
-
-        if (isSingleToken) {
-          // Classic OR search for ID, Name, Barcode
-          q = q.or(`nombre.ilike.%${cleanQuery}%,id.ilike.%${cleanQuery}%,codigo_barra.ilike.%${cleanQuery}%`);
-        } else {
-          // Multi-word search: Name must match ALL words (AND logic)
-          // OR exact ID match OR exact Barcode match
-          // Note: Supabase doesn't easily support mixed AND/OR groups in one line without raw SQL or RPC.
-          // Workaround for simple cases: Use an OR group where:
-          // 1. ID ilike query OR
-          // 2. Barcode ilike query OR
-          // 3. Name matches all tokens
-
-          // However, for "suavizante suelto", we want to match names containing "suavizante" AND "suelto".
-          // Supabase 'ilike' doesn't support ALL.
-          // We can use `.textSearch` but it requires a setup. 
-          // Simpler approach for now using PostgREST syntax:
-          // We will prioritize name search if spacing exists.
-
-          const tokens = cleanQuery.split(/\s+/).map(t => `%${t}%`);
-          // Chain ILIKEs for name
-          tokens.forEach(token => {
-            q = q.ilike('nombre', token);
-          });
-          // Note: This effectively searches for Name containing T1 AND Name containing T2...
-          // It excludes ID/Barcode search in this specific multi-word branch which is usually acceptable 
-          // because IDs/Barcodes rarely have spaces.
-        }
       }
 
       return q;
@@ -259,7 +437,7 @@ export const api = {
     const { data, error } = await dataQuery;
     if (error) handleSupabaseError(error);
 
-    const productos = (data as Producto[]) || [];
+    const productos = await adjuntarCodigosBarra((data as Producto[]) || []);
 
     return {
       total: count || 0,
@@ -280,19 +458,45 @@ export const api = {
 
     if (error) handleSupabaseError(error);
 
-    return (data as Producto[]) || [];
+    return await adjuntarCodigosBarra((data as Producto[]) || []);
   },
 
   async asignarCodigoBarra(id: string, codigoBarra: string): Promise<Producto> {
-    const { data, error } = await supabase
+    return await this.agregarCodigoBarraProducto(id, codigoBarra);
+  },
+
+  async obtenerCodigosBarraProducto(id: string): Promise<string[]> {
+    const producto = await this.obtenerProducto(id);
+    return producto.codigos_barra || [];
+  },
+
+  async actualizarCodigosBarraProducto(id: string, codigosBarra: string[]): Promise<Producto> {
+    const normalizados = normalizarCodigosBarra(codigosBarra);
+    const codigoPrincipal = normalizados[0] || null;
+
+    const { error } = await supabase
       .from(TABLA_PRODUCTOS)
-      .update({ codigo_barra: codigoBarra })
-      .eq('id', id)
-      .select()
-      .single();
+      .update({
+        codigo_barra: codigoPrincipal,
+        ultima_actualizacion: new Date().toISOString(),
+      })
+      .eq('id', id);
 
     if (error) handleSupabaseError(error);
-    return data as Producto;
+
+    await sincronizarFilasCodigosBarra(id, normalizados);
+
+    return await this.obtenerProducto(id);
+  },
+
+  async agregarCodigoBarraProducto(id: string, codigoBarra: string): Promise<Producto> {
+    const producto = await this.obtenerProducto(id);
+    const actualizados = normalizarCodigosBarra([
+      ...(producto.codigos_barra || []),
+      codigoBarra,
+    ]);
+
+    return await this.actualizarCodigosBarraProducto(id, actualizados);
   },
 
   /**
@@ -346,21 +550,43 @@ export const api = {
       .single();
 
     if (error) handleSupabaseError(error);
-    return data as Producto;
+
+    const [producto] = await adjuntarCodigosBarra([data as Producto]);
+    return producto;
   },
 
   /**
    * Obtiene un producto por código de barras
    */
   async obtenerProductoPorCodigoBarras(codigoBarras: string): Promise<Producto> {
+    const codigoNormalizado = codigoBarras.trim();
+
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .select('*')
-      .eq('codigo_barra', codigoBarras)
-      .single();
+      .eq('codigo_barra', codigoNormalizado)
+      .maybeSingle();
 
     if (error) handleSupabaseError(error);
-    return data as Producto;
+
+    if (data) {
+      const [producto] = await adjuntarCodigosBarra([data as Producto]);
+      return producto;
+    }
+
+    const { data: barcodeRow, error: barcodeError } = await supabase
+      .from(TABLA_PRODUCTO_CODIGOS)
+      .select('producto_id')
+      .eq('codigo_barra', codigoNormalizado)
+      .maybeSingle();
+
+    if (barcodeError) handleSupabaseError(barcodeError);
+
+    if (!barcodeRow?.producto_id) {
+      throw new ApiError(`No existe un producto con el código de barras ${codigoNormalizado}.`, 404);
+    }
+
+    return await this.obtenerProducto(barcodeRow.producto_id);
   },
 
   /**
@@ -375,6 +601,15 @@ export const api = {
     usuarioId?: string,
     usuarioNombre?: string
   ): Promise<Producto> {
+    const { codigos_barra, ...datosProducto } = datos;
+    const codigosNormalizados = codigos_barra !== undefined
+      ? normalizarCodigosBarra(codigos_barra)
+      : undefined;
+
+    if (codigosNormalizados !== undefined) {
+      datosProducto.codigo_barra = codigosNormalizados[0] || null;
+    }
+
     // Obtener estado anterior para historial
     const { data: anterior } = await supabase
       .from(TABLA_PRODUCTOS)
@@ -385,7 +620,7 @@ export const api = {
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .update({
-        ...datos,
+        ...datosProducto,
         ultima_actualizacion: new Date().toISOString()
       })
       .eq('id', id)
@@ -398,7 +633,7 @@ export const api = {
     if (anterior && data) {
       const cambios = Object.keys(datos) as (keyof ProductoUpdate)[];
       // Campos exentos de registro
-      const ignorar = ['ultima_actualizacion', 'motivo_eliminacion'];
+      const ignorar = ['ultima_actualizacion', 'motivo_eliminacion', 'codigos_barra'];
 
       for (const campo of cambios) {
         if (ignorar.includes(campo)) continue;
@@ -422,17 +657,28 @@ export const api = {
       }
     }
 
-    return data as Producto;
+    if (codigosNormalizados !== undefined) {
+      await sincronizarFilasCodigosBarra(id, codigosNormalizados);
+    }
+
+    return await this.obtenerProducto(id);
   },
 
   /**
    * Crea un nuevo producto
    */
   async crearProducto(datos: ProductoInsert): Promise<Producto> {
+    const { codigos_barra, ...datosProducto } = datos;
+    const codigosNormalizados = normalizarCodigosBarra([
+      ...(codigos_barra || []),
+      datos.codigo_barra,
+    ]);
+
     const { data, error } = await supabase
       .from(TABLA_PRODUCTOS)
       .insert({
-        ...datos,
+        ...datosProducto,
+        codigo_barra: codigosNormalizados[0] || null,
         created_at: new Date().toISOString(),
         ultima_actualizacion: new Date().toISOString(),
         estado: 'activo'
@@ -441,7 +687,10 @@ export const api = {
       .single();
 
     if (error) handleSupabaseError(error);
-    return data as Producto;
+
+    await sincronizarFilasCodigosBarra(data.id, codigosNormalizados);
+
+    return await this.obtenerProducto(data.id);
   },
 
   /**
@@ -455,6 +704,13 @@ export const api = {
     usuarioId?: string,
     usuarioNombre?: string
   ): Promise<Producto> {
+    const codigosActuales = await this.obtenerCodigosBarraProducto(idAnterior);
+    const codigosMigrados = normalizarCodigosBarra([
+      ...(datos.codigos_barra || []),
+      ...codigosActuales,
+      datos.codigo_barra,
+    ]);
+
     // 1. Verificar si el nuevo ID ya existe
     const { data: existe } = await supabase
       .from(TABLA_PRODUCTOS)
@@ -466,8 +722,15 @@ export const api = {
       throw new ApiError(`El codigo ${nuevoId} ya esta en uso.`, 409);
     }
 
-    // 2. Crear el nuevo producto
-    const nuevoProducto = await this.crearProducto({ ...datos, id: nuevoId });
+    // 2. Crear el nuevo producto sin códigos para evitar colisión temporal
+    const { codigos_barra: _codigos_barraMigracion, ...datosProducto } = datos;
+    void _codigos_barraMigracion;
+    await this.crearProducto({
+      ...datosProducto,
+      id: nuevoId,
+      codigo_barra: null,
+      codigos_barra: [],
+    });
 
     // 3. Intentar eliminar el anterior
     const { error: deleteError } = await supabase
@@ -499,7 +762,9 @@ export const api = {
       usuarioNombre
     ).catch(console.error);
 
-    return nuevoProducto;
+    await this.actualizarCodigosBarraProducto(nuevoId, codigosMigrados);
+
+    return await this.obtenerProducto(nuevoId);
   },
 
   /**

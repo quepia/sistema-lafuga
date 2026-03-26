@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Search, Barcode, Camera, Check, X, Keyboard, AlertCircle } from "lucide-react"
+import { Search, Barcode, Camera, Check, X, Keyboard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,6 +39,14 @@ export default function EscanerPage() {
 
   const barcodeInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+
+  const getCodigosProducto = (producto: Producto | null): string[] => {
+    if (!producto) return []
+    if (producto.codigos_barra && producto.codigos_barra.length > 0) {
+      return producto.codigos_barra
+    }
+    return producto.codigo_barra ? [producto.codigo_barra] : []
+  }
 
   // ZXing hook for camera
   const { ref: cameraRef } = useZxing({
@@ -86,7 +94,7 @@ export default function EscanerPage() {
 
   const seleccionarProducto = (producto: Producto) => {
     setSelectedProducto(producto)
-    setCodigoInput(producto.codigo_barra || "")
+    setCodigoInput("")
     setModalOpen(true)
     setScanMode("usb") // Default to USB/Manual
 
@@ -100,23 +108,20 @@ export default function EscanerPage() {
 
     setSaving(true)
     try {
-      await api.asignarCodigoBarra(selectedProducto.id, codigoInput.trim())
+      const productoActualizado = await api.agregarCodigoBarraProducto(selectedProducto.id, codigoInput.trim())
 
       toast({
-        title: "Código asignado",
-        description: `Código ${codigoInput} asignado a ${selectedProducto.nombre}`,
+        title: "Código agregado",
+        description: `Código ${codigoInput} asociado a ${selectedProducto.nombre}`,
       })
 
-      // Refresh text
-      await cargarDatos()
-
-      setModalOpen(false)
-      setSelectedProducto(null)
+      setSelectedProducto(productoActualizado)
       setCodigoInput("")
+      await cargarDatos()
     } catch (error) {
       toast({
         title: "Error",
-        description: "No se pudo guardar el código",
+        description: error instanceof Error ? error.message : "No se pudo guardar el código",
         variant: "destructive"
       })
     } finally {
@@ -139,7 +144,7 @@ export default function EscanerPage() {
       return (
         (p.nombre && p.nombre.toLowerCase().includes(query)) ||
         (p.id && p.id.toLowerCase().includes(query)) ||
-        (p.codigo_barra && p.codigo_barra.toLowerCase().includes(query))
+        getCodigosProducto(p).some((codigo) => codigo.toLowerCase().includes(query))
       )
     })
 
@@ -230,10 +235,17 @@ export default function EscanerPage() {
                         <Badge variant="outline">{producto.categoria}</Badge>
                       </TableCell>
                       <TableCell>
-                        {producto.codigo_barra ? (
-                          <span className="font-mono text-sm text-green-600">
-                            {producto.codigo_barra}
-                          </span>
+                        {getCodigosProducto(producto).length > 0 ? (
+                          <div className="space-y-1">
+                            <span className="font-mono text-sm text-green-600 block">
+                              {getCodigosProducto(producto)[0]}
+                            </span>
+                            {getCodigosProducto(producto).length > 1 && (
+                              <span className="text-xs text-muted-foreground">
+                                +{getCodigosProducto(producto).length - 1} adicional{getCodigosProducto(producto).length > 2 ? "es" : ""}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">
                             Sin asignar
@@ -261,7 +273,7 @@ export default function EscanerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Barcode className="h-5 w-5" />
-              Asignar Código de Barras
+              Gestionar Códigos de Barras
             </DialogTitle>
           </DialogHeader>
 
@@ -273,10 +285,16 @@ export default function EscanerPage() {
                 <p className="text-sm text-muted-foreground">
                   ID: {selectedProducto.id} | {selectedProducto.categoria}
                 </p>
-                {selectedProducto.codigo_barra && (
-                  <p className="text-sm mt-1">
-                    Código actual: <span className="font-mono">{selectedProducto.codigo_barra}</span>
-                  </p>
+                {getCodigosProducto(selectedProducto).length > 0 && (
+                  <div className="text-sm mt-2 space-y-1">
+                    <p className="font-medium">Códigos asociados:</p>
+                    {getCodigosProducto(selectedProducto).map((codigo, index) => (
+                      <p key={codigo} className="font-mono text-xs">
+                        {index === 0 ? "Principal: " : "Adicional: "}
+                        {codigo}
+                      </p>
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -297,7 +315,7 @@ export default function EscanerPage() {
                 <TabsContent value="usb" className="space-y-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">
-                      Escanea o escribe el código de barras:
+                      Escanea o escribe un nuevo código de barras:
                     </label>
                     <Input
                       ref={barcodeInputRef}
@@ -340,7 +358,7 @@ export default function EscanerPage() {
                           placeholder="Código detectado..."
                           className="font-mono"
                         />
-                        <Button size="sm" onClick={guardarCodigo}>OK</Button>
+                        <Button size="sm" onClick={guardarCodigo}>Agregar</Button>
                       </div>
                     </div>
                   </div>
@@ -363,7 +381,7 @@ export default function EscanerPage() {
                   className="flex-1"
                 >
                   <Check className="h-4 w-4 mr-2" />
-                  {saving ? "Guardando..." : "Guardar"}
+                  {saving ? "Guardando..." : "Agregar"}
                 </Button>
               </div>
             </div>

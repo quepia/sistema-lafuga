@@ -17,6 +17,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/productos", label: "Consultar Precios", icon: Search },
   { href: "/ventas/nueva", label: "Nueva Venta", icon: ShoppingCart },
+  { href: "/ventas/simple", label: "Modo Venta", icon: ShoppingCart },
   { href: "/ventas/historial", label: "Historial Ventas", icon: FileText },
   { href: "/catalogos", label: "Catálogo Mayorista", icon: BookOpen },
   { href: "/actualizacion-masiva", label: "Actualizar Precios", icon: DollarSign },

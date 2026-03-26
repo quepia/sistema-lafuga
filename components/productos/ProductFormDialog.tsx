@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Check, X, Loader2, Info, AlertTriangle } from "lucide-react"
+import { Loader2, Info, AlertTriangle } from "lucide-react"
 import {
     Dialog,
     DialogContent,
@@ -81,6 +81,7 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
     const [precioMenorStr, setPrecioMenorStr] = useState("")
     const [precioMayorStr, setPrecioMayorStr] = useState("")
     const [costoStr, setCostoStr] = useState("")
+    const [codigosBarraText, setCodigosBarraText] = useState("")
 
     // Confirmation dialog state
     const [showConfirmDialog, setShowConfirmDialog] = useState(false)
@@ -88,7 +89,20 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
     // To check if we are in "Edit Mode"
     const isEditing = !!productoEditar
 
-    const { categorias, loading: loadingCategorias } = useCategorias()
+    const { categorias } = useCategorias()
+
+    const parseBarcodeList = (value: string): string[] => {
+        const seen = new Set<string>()
+
+        return value
+            .split(/\r?\n|,|;/)
+            .map((item) => item.trim())
+            .filter((item) => {
+                if (!item || seen.has(item)) return false
+                seen.add(item)
+                return true
+            })
+    }
 
     // Reset or Load data when dialog opens
     useEffect(() => {
@@ -124,6 +138,10 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                 setPrecioMenorStr(productoEditar.precio_menor?.toString() || "")
                 setPrecioMayorStr(productoEditar.precio_mayor?.toString() || "")
                 setCostoStr(productoEditar.costo?.toString() || "")
+                setCodigosBarraText(
+                    (productoEditar.codigos_barra || (productoEditar.codigo_barra ? [productoEditar.codigo_barra] : []))
+                        .join("\n")
+                )
             } else {
                 setFormData({
                     id: "",
@@ -156,6 +174,7 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                 setPrecioMenorStr("")
                 setPrecioMayorStr("")
                 setCostoStr("")
+                setCodigosBarraText("")
             }
         }
     }, [open, productoEditar])
@@ -216,6 +235,7 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
             const precioMenor = parseFloat(precioMenorStr) || 0
             const precioMayor = parseFloat(precioMayorStr) || 0
             const costo = parseFloat(costoStr) || 0
+            const codigosBarra = parseBarcodeList(codigosBarraText)
 
             // Base data for update/create
             const commonData = {
@@ -224,7 +244,8 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                 precio_menor: precioMenor,
                 precio_mayor: precioMayor,
                 costo: costo,
-                codigo_barra: formData.codigo_barra || null,
+                codigo_barra: codigosBarra[0] || null,
+                codigos_barra: codigosBarra,
                 descripcion: formData.descripcion || null,
                 peso_neto: formData.peso_neto ? Number(formData.peso_neto) : null,
                 volumen_neto: formData.volumen_neto ? Number(formData.volumen_neto) : null,
@@ -351,16 +372,17 @@ export function ProductFormDialog({ open, onOpenChange, onSuccess, productoEdita
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="codigo_barra">Codigo de Barras</Label>
-                                <div className="flex gap-2">
-                                    <Input
-                                        id="codigo_barra"
-                                        value={formData.codigo_barra || ""}
-                                        onChange={(e) => handleInputChange("codigo_barra", e.target.value)}
-                                        placeholder="Escanea o escribe..."
-                                    />
-                                    {/* Future: Add Scan Button here */}
-                                </div>
+                                <Label htmlFor="codigos_barra">Codigos de Barras</Label>
+                                <Textarea
+                                    id="codigos_barra"
+                                    value={codigosBarraText}
+                                    onChange={(e) => setCodigosBarraText(e.target.value)}
+                                    placeholder={"Un codigo por linea\nEj:\n7791234567890\n7791234567891"}
+                                    className="min-h-[110px] font-mono"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Puedes pegar varios códigos. El primero se usa como principal.
+                                </p>
                             </div>
 
                             <div className="space-y-2 md:col-span-2">

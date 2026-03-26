@@ -2,18 +2,10 @@
 
 import { useState, useRef, useEffect } from "react"
 import dynamic from "next/dynamic"
-import { Search, Plus, Minus, Trash2, Printer, ShoppingCart, CreditCard, Banknote, Edit2, Percent } from "lucide-react"
+import { Search, Plus, Trash2, Printer, ShoppingCart, CreditCard, Banknote, Percent } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import {
   Select,
   SelectContent,
@@ -26,10 +18,8 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/auth-context"
 import { PrintOptionsDialog, PrintFormat } from "@/components/PrintOptionsDialog"
 import { api, Producto, VentaProductoExtendido } from "@/lib/api"
-import { EditPriceDialog } from "@/components/pos/EditPriceDialog"
 import { GlobalDiscountDialog } from "@/components/pos/GlobalDiscountDialog"
 import { SaleLineItem } from "@/components/pos/SaleLineItem"
-import { formatearPrecio } from "@/lib/supabase-utils"
 import { ProductFormDialog } from "@/components/productos/ProductFormDialog"
 
 // Dynamic imports for heavy print components (reduces initial bundle)
@@ -66,6 +56,40 @@ interface VentaCreada {
   }>
 }
 
+interface VentaDraft {
+  version: number
+  carrito: CarritoItem[]
+  clienteNombre: string
+  tipoVenta: "MENOR" | "MAYOR"
+  metodoPago: "Efectivo" | "Transferencia" | "Tarjeta"
+  descuentoGlobal: number
+  descuentoGlobalPorcentaje: number
+  descuentoGlobalMotivo: string
+}
+
+const VENTA_DRAFT_VERSION = 1
+
+function getVentaDraftStorageKey(userId?: string) {
+  return `nueva-venta-draft:${userId ?? "default"}`
+}
+
+function isVentaDraft(value: unknown): value is VentaDraft {
+  if (!value || typeof value !== "object") return false
+
+  const draft = value as Partial<VentaDraft>
+
+  return (
+    draft.version === VENTA_DRAFT_VERSION &&
+    Array.isArray(draft.carrito) &&
+    typeof draft.clienteNombre === "string" &&
+    (draft.tipoVenta === "MENOR" || draft.tipoVenta === "MAYOR") &&
+    (draft.metodoPago === "Efectivo" || draft.metodoPago === "Transferencia" || draft.metodoPago === "Tarjeta") &&
+    typeof draft.descuentoGlobal === "number" &&
+    typeof draft.descuentoGlobalPorcentaje === "number" &&
+    typeof draft.descuentoGlobalMotivo === "string"
+  )
+}
+
 export default function NuevaVentaPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Producto[]>([])
@@ -88,10 +112,32 @@ export default function NuevaVentaPage() {
 
   // Product creation state
   const [creatingProduct, setCreatingProduct] = useState(false)
+  const [draftReady, setDraftReady] = useState(false)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const restoringDraftRef = useRef(false)
   const { toast } = useToast()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
+  const draftStorageKey = getVentaDraftStorageKey(user?.id)
+
+  const limpiarBorradorGuardado = () => {
+    if (typeof window === "undefined") return
+    window.localStorage.removeItem(draftStorageKey)
+  }
+
+  const limpiarVentaEnCurso = () => {
+    setSearchQuery("")
+    setSearchResults([])
+    setCarrito([])
+    setClienteNombre("")
+    setTipoVenta("MENOR")
+    setMetodoPago("Efectivo")
+    setDescuentoGlobal(0)
+    setDescuentoGlobalPorcentaje(0)
+    setDescuentoGlobalMotivo("")
+    limpiarBorradorGuardado()
+    searchInputRef.current?.focus()
+  }
 
   // Buscar productos usando api.ts directamente
   const buscarProductos = async (query: string) => {
@@ -119,6 +165,98 @@ export default function NuevaVentaPage() {
     }, 300)
     return () => clearTimeout(timer)
   }, [searchQuery])
+
+  // Restaurar venta en curso guardada automaticamente
+  useEffect(() => {
+    if (authLoading || typeof window === "undefined") return
+
+    try {
+      const storedDraft = window.localStorage.getItem(draftStorageKey)
+
+      if (!storedDraft) {
+        return
+      }
+
+      const parsedDraft: unknown = JSON.parse(storedDraft)
+
+      if (!isVentaDraft(parsedDraft)) {
+        window.localStorage.removeItem(draftStorageKey)
+        return
+      }
+
+      if (parsedDraft.tipoVenta !== "MENOR") {
+        restoringDraftRef.current = true
+      }
+
+      setCarrito(parsedDraft.carrito)
+      setClienteNombre(parsedDraft.clienteNombre)
+      setTipoVenta(parsedDraft.tipoVenta)
+      setMetodoPago(parsedDraft.metodoPago)
+      setDescuentoGlobal(parsedDraft.descuentoGlobal)
+      setDescuentoGlobalPorcentaje(parsedDraft.descuentoGlobalPorcentaje)
+      setDescuentoGlobalMotivo(parsedDraft.descuentoGlobalMotivo)
+
+      const tieneDatos =
+        parsedDraft.carrito.length > 0 ||
+        parsedDraft.clienteNombre.trim().length > 0 ||
+        parsedDraft.descuentoGlobal > 0 ||
+        parsedDraft.tipoVenta !== "MENOR" ||
+        parsedDraft.metodoPago !== "Efectivo"
+
+      if (tieneDatos) {
+        toast({
+          title: "Venta recuperada",
+          description: "Se restauró la venta en curso que quedó guardada automáticamente.",
+        })
+      }
+    } catch (error) {
+      console.error("Error restaurando borrador de venta:", error)
+      window.localStorage.removeItem(draftStorageKey)
+    } finally {
+      setDraftReady(true)
+    }
+  }, [authLoading, draftStorageKey, toast])
+
+  // Guardar venta en curso mientras el usuario navega por el sistema
+  useEffect(() => {
+    if (authLoading || !draftReady || typeof window === "undefined") return
+
+    const tieneDatos =
+      carrito.length > 0 ||
+      clienteNombre.trim().length > 0 ||
+      descuentoGlobal > 0 ||
+      tipoVenta !== "MENOR" ||
+      metodoPago !== "Efectivo"
+
+    if (!tieneDatos) {
+      window.localStorage.removeItem(draftStorageKey)
+      return
+    }
+
+    const draft: VentaDraft = {
+      version: VENTA_DRAFT_VERSION,
+      carrito,
+      clienteNombre,
+      tipoVenta,
+      metodoPago,
+      descuentoGlobal,
+      descuentoGlobalPorcentaje,
+      descuentoGlobalMotivo,
+    }
+
+    window.localStorage.setItem(draftStorageKey, JSON.stringify(draft))
+  }, [
+    authLoading,
+    carrito,
+    clienteNombre,
+    descuentoGlobal,
+    descuentoGlobalMotivo,
+    descuentoGlobalPorcentaje,
+    draftReady,
+    draftStorageKey,
+    metodoPago,
+    tipoVenta,
+  ])
 
   // Calcular precio segun tipo de venta
   const getPrecio = (producto: Producto) => {
@@ -236,20 +374,27 @@ export default function NuevaVentaPage() {
 
   // Actualizar precios cuando cambia el tipo de venta (only for items without custom price)
   useEffect(() => {
-    setCarrito(carrito.map(item => {
-      // If item has a custom price, keep it
-      if (item.tipoPrecio === 'custom') return item
+    if (restoringDraftRef.current) {
+      restoringDraftRef.current = false
+      return
+    }
 
-      const nuevoPrecio = getPrecio(item.producto)
-      const tipoPrecioActual = tipoVenta === "MAYOR" ? "mayor" : "menor"
-      return {
-        ...item,
-        precioUnitario: nuevoPrecio,
-        precioOriginal: nuevoPrecio,
-        tipoPrecio: tipoPrecioActual,
-        subtotal: item.cantidad * nuevoPrecio
-      }
-    }))
+    setCarrito((currentCarrito) =>
+      currentCarrito.map(item => {
+        // If item has a custom price, keep it
+        if (item.tipoPrecio === 'custom') return item
+
+        const nuevoPrecio = tipoVenta === "MAYOR" ? item.producto.precio_mayor : item.producto.precio_menor
+        const tipoPrecioActual = tipoVenta === "MAYOR" ? "mayor" : "menor"
+        return {
+          ...item,
+          precioUnitario: nuevoPrecio,
+          precioOriginal: nuevoPrecio,
+          tipoPrecio: tipoPrecioActual,
+          subtotal: item.cantidad * nuevoPrecio
+        }
+      })
+    )
 
     // Reset global discount when sale type changes
     quitarDescuentoGlobal()
@@ -319,10 +464,8 @@ export default function NuevaVentaPage() {
       setVentaCreada(venta)
       setShowPrintOptions(true)
 
-      // Limpiar carrito y descuentos
-      setCarrito([])
-      setClienteNombre("")
-      quitarDescuentoGlobal()
+      // Limpiar venta en curso y su borrador
+      limpiarVentaEnCurso()
 
       toast({
         title: "Venta registrada",
@@ -340,6 +483,26 @@ export default function NuevaVentaPage() {
     }
   }
 
+  const descartarVentaEnCurso = () => {
+    const tieneDatos =
+      carrito.length > 0 ||
+      clienteNombre.trim().length > 0 ||
+      descuentoGlobal > 0 ||
+      tipoVenta !== "MENOR" ||
+      metodoPago !== "Efectivo"
+
+    if (!tieneDatos) return
+
+    const confirmar = window.confirm("Se va a eliminar la venta en curso y su borrador guardado. ¿Querés continuar?")
+    if (!confirmar) return
+
+    limpiarVentaEnCurso()
+    toast({
+      title: "Venta descartada",
+      description: "Se eliminó la venta en curso guardada.",
+    })
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -347,6 +510,9 @@ export default function NuevaVentaPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand-dark">Nueva Venta</h1>
           <p className="text-muted-foreground">Genera tickets y presupuestos</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            La venta en curso se guarda automáticamente hasta que la cobres o la descartes.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={tipoVenta} onValueChange={(v) => setTipoVenta(v as "MENOR" | "MAYOR")}>
@@ -577,6 +743,25 @@ export default function NuevaVentaPage() {
               >
                 <Printer className="h-5 w-5 mr-2" />
                 {loading ? "Generando..." : "Cobrar y Generar Ticket"}
+              </Button>
+
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={descartarVentaEnCurso}
+                disabled={
+                  loading ||
+                  (
+                    carrito.length === 0 &&
+                    clienteNombre.trim().length === 0 &&
+                    descuentoGlobal === 0 &&
+                    tipoVenta === "MENOR" &&
+                    metodoPago === "Efectivo"
+                  )
+                }
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Descartar Venta en Curso
               </Button>
             </CardContent>
           </Card>
