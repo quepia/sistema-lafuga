@@ -193,23 +193,29 @@ function fusionarCodigosProducto(
 async function obtenerMapaCodigosBarra(productIds: string[]): Promise<Map<string, string[]>> {
   const ids = Array.from(new Set(productIds.filter(Boolean)));
   const mapa = new Map<string, string[]>();
+  const BATCH_SIZE = 200;
 
   if (ids.length === 0) {
     return mapa;
   }
 
-  const { data, error } = await supabase
-    .from(TABLA_PRODUCTO_CODIGOS)
-    .select('producto_id, codigo_barra')
-    .in('producto_id', ids);
+  // PostgREST/Supabase can return 400 when the generated `in (...)` filter grows too large.
+  for (let index = 0; index < ids.length; index += BATCH_SIZE) {
+    const batchIds = ids.slice(index, index + BATCH_SIZE);
 
-  if (error) handleSupabaseError(error);
+    const { data, error } = await supabase
+      .from(TABLA_PRODUCTO_CODIGOS)
+      .select('producto_id, codigo_barra')
+      .in('producto_id', batchIds);
 
-  (data as ProductoCodigoBarraRow[] | null)?.forEach((row) => {
-    const actuales = mapa.get(row.producto_id) || [];
-    actuales.push(row.codigo_barra);
-    mapa.set(row.producto_id, actuales);
-  });
+    if (error) handleSupabaseError(error);
+
+    (data as ProductoCodigoBarraRow[] | null)?.forEach((row) => {
+      const actuales = mapa.get(row.producto_id) || [];
+      actuales.push(row.codigo_barra);
+      mapa.set(row.producto_id, actuales);
+    });
+  }
 
   return mapa;
 }
