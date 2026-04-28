@@ -2,6 +2,20 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+    const path = request.nextUrl.pathname;
+
+    // Endpoints del MCP / OAuth tienen su propia auth (Bearer + PKCE).
+    // El authorize lee la sesión de Supabase por su cuenta. Saltamos el
+    // middleware para evitar lookups innecesarios y posibles redirects.
+    if (
+        path.startsWith("/api/mcp") ||
+        path.startsWith("/api/oauth/") ||
+        path.startsWith("/api/well-known/") ||
+        path.startsWith("/.well-known/")
+    ) {
+        return NextResponse.next();
+    }
+
     let response = NextResponse.next({
         request: {
             headers: request.headers,
@@ -34,8 +48,6 @@ export async function middleware(request: NextRequest) {
     const {
         data: { user },
     } = await supabase.auth.getUser();
-
-    const path = request.nextUrl.pathname;
 
     // 1. If not authenticated and trying to access protected route -> Login
     // Protected: /dashboard
