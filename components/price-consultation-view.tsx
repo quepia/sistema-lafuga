@@ -39,6 +39,7 @@ function getStockStatus(producto: Producto): { label: string; color: string; var
 }
 
 const ITEMS_PER_PAGE = 20
+const SEARCH_DEBOUNCE_MS = 150
 
 type PriceConsultationViewProps = ProductImageActions
 
@@ -81,7 +82,7 @@ export default function PriceConsultationView({
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput)
       setOffset(0) // Reset to first page on search
-    }, 300)
+    }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [searchInput])
 
@@ -104,6 +105,12 @@ export default function PriceConsultationView({
   // Use local state if available (for optimistic updates), otherwise use SWR data
   const productos = localProductos ?? swrProductos
   const total = localTotal ?? swrTotal
+  const currentSearchTerm = searchInput.trim()
+  const isWaitingForDebounce = currentSearchTerm !== debouncedSearch.trim()
+  const isPendingResults = isWaitingForDebounce || loading
+  const pendingLabel = currentSearchTerm
+    ? `Buscando “${currentSearchTerm}”…`
+    : "Cargando productos…"
 
   const syncWithServer = async () => {
     try {
@@ -151,12 +158,16 @@ export default function PriceConsultationView({
 
   const handlePrevPage = () => {
     if (offset > 0) {
+      setLocalProductos(null)
+      setLocalTotal(null)
       setOffset(offset - ITEMS_PER_PAGE)
     }
   }
 
   const handleNextPage = () => {
     if (offset + ITEMS_PER_PAGE < total) {
+      setLocalProductos(null)
+      setLocalTotal(null)
       setOffset(offset + ITEMS_PER_PAGE)
     }
   }
@@ -171,12 +182,16 @@ export default function PriceConsultationView({
               <Search className="absolute left-3 top-1/2 h-4 w-4 sm:h-5 sm:w-5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Buscar producto..."
-                className="pl-9 sm:pl-10 h-10 sm:h-12 text-sm sm:text-base"
+                className="pl-9 pr-10 sm:pl-10 h-10 sm:h-12 text-sm sm:text-base"
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => {
+                  setSearchInput(e.target.value)
+                  setLocalProductos(null)
+                  setLocalTotal(null)
+                }}
               />
-              {/* Background revalidation indicator */}
-              {isValidating && !loading && (
+              {/* Immediate indicator, including the debounce interval */}
+              {(isPendingResults || isValidating) && (
                 <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
               )}
             </div>
@@ -195,6 +210,8 @@ export default function PriceConsultationView({
                   onCheckedChange={(checked) => {
                     setShowDeleted(checked === true)
                     setOffset(0)
+                    setLocalProductos(null)
+                    setLocalTotal(null)
                   }}
                 />
                 <Label htmlFor="show-deleted" className="text-sm cursor-pointer select-none">Mostrar eliminados</Label>
@@ -204,6 +221,8 @@ export default function PriceConsultationView({
                 onValueChange={(value) => {
                   setSelectedCategory(value)
                   setOffset(0)
+                  setLocalProductos(null)
+                  setLocalTotal(null)
                 }}
               >
                 <SelectTrigger className="w-full sm:w-[180px] h-10 sm:h-12">
@@ -224,7 +243,7 @@ export default function PriceConsultationView({
       </Card>
 
       {/* Error State - Show as alert, not blocking */}
-      {error && (
+      {error && !isPendingResults && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -239,13 +258,18 @@ export default function PriceConsultationView({
       {/* Results Count & Pagination Info */}
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm sm:text-lg font-semibold text-brand-dark">
-          {loading ? (
-            <Skeleton className="h-5 sm:h-6 w-32 sm:w-48" />
+          {isPendingResults ? (
+            <span className="inline-flex items-center gap-2 text-[#006AC0]">
+              <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5 animate-spin" aria-hidden="true" />
+              {pendingLabel}
+            </span>
+          ) : error ? (
+            <span>No se pudo confirmar el resultado</span>
           ) : (
             <>{total.toLocaleString()} <span className="hidden sm:inline">productos encontrados</span><span className="sm:hidden">productos</span></>
           )}
         </h3>
-        {total > ITEMS_PER_PAGE && !loading && (
+        {total > ITEMS_PER_PAGE && !isPendingResults && !error && (
           <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
             {currentPage}/{totalPages}
           </div>
@@ -253,23 +277,44 @@ export default function PriceConsultationView({
       </div>
 
       {/* Product Cards Grid */}
-      {loading ? (
-        <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-gray-50 to-white pb-3 sm:pb-4">
-                <Skeleton className="h-4 w-20 sm:w-24 mb-2" />
-                <Skeleton className="h-5 w-full" />
-              </CardHeader>
-              <CardContent className="pt-3 sm:pt-4">
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-3 sm:mb-4">
-                  <Skeleton className="h-20 sm:h-24 w-full rounded-lg" />
-                  <Skeleton className="h-20 sm:h-24 w-full rounded-lg" />
-                </div>
-                <Skeleton className="h-5 sm:h-6 w-24 sm:w-32" />
-              </CardContent>
-            </Card>
-          ))}
+      {isPendingResults ? (
+        <div className="space-y-4">
+          <Card
+            role="status"
+            aria-live="polite"
+            className="border-[#006AC0]/30 bg-[#006AC0]/5 shadow-sm"
+          >
+            <CardContent className="flex items-center gap-4 py-8 sm:py-10">
+              <div className="flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-full bg-[#006AC0]/10 text-[#006AC0]">
+                <RefreshCw className="h-6 w-6 sm:h-7 sm:w-7 animate-spin" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-xl sm:text-2xl font-bold text-brand-dark">
+                  {pendingLabel}
+                </p>
+                <p className="mt-1 text-sm sm:text-base text-muted-foreground">
+                  Esperá un momento; todavía no hay resultados confirmados.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2" aria-hidden="true">
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i} className="overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-gray-50 to-white pb-3 sm:pb-4">
+                  <Skeleton className="h-4 w-20 sm:w-24 mb-2" />
+                  <Skeleton className="h-5 w-full" />
+                </CardHeader>
+                <CardContent className="pt-3 sm:pt-4">
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-3 sm:mb-4">
+                    <Skeleton className="h-20 sm:h-24 w-full rounded-lg" />
+                    <Skeleton className="h-20 sm:h-24 w-full rounded-lg" />
+                  </div>
+                  <Skeleton className="h-5 sm:h-6 w-24 sm:w-32" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
@@ -420,14 +465,18 @@ export default function PriceConsultationView({
 
       {/* Empty State */}
       {
-        !loading && productos.length === 0 && (
+        !isPendingResults && !error && productos.length === 0 && (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
+            <CardContent role="status" aria-live="polite" className="flex flex-col items-center justify-center py-12 text-center">
               <Search className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-lg font-medium text-brand-dark">No se encontraron productos</p>
+              <p className="text-lg sm:text-xl font-semibold text-brand-dark">
+                {currentSearchTerm
+                  ? `No encontramos productos para “${currentSearchTerm}”`
+                  : "No se encontraron productos"}
+              </p>
               <p className="text-sm text-muted-foreground mt-2">
-                {searchInput
-                  ? "Intenta con otros términos de búsqueda"
+                {currentSearchTerm
+                  ? "La búsqueda terminó con 0 resultados. Probá con otro término."
                   : "No hay productos en esta categoría"}
               </p>
             </CardContent>
@@ -437,7 +486,7 @@ export default function PriceConsultationView({
 
       {/* Pagination */}
       {
-        total > ITEMS_PER_PAGE && !loading && (
+        total > ITEMS_PER_PAGE && !isPendingResults && !error && (
           <div className="flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
             <Button
               variant="outline"

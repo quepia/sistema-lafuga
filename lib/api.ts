@@ -139,6 +139,10 @@ type CatalogoPublicoRpcResult = {
   catalogo: Catalogo;
   productos: Producto[];
 };
+type BuscarProductosPaginadosRpcResult = {
+  total: number;
+  productos: Producto[];
+};
 type ProductoCodigoBarraRow = {
   producto_id: string;
   codigo_barra: string;
@@ -163,6 +167,16 @@ function handleSupabaseError(error: { message: string; code?: string }): never {
     500,
     error.code
   );
+}
+
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+
+  throw new DOMException('Solicitud cancelada', 'AbortError');
 }
 
 function normalizarCodigosBarra(codigos: Array<string | null | undefined>): string[] {
@@ -190,7 +204,10 @@ function fusionarCodigosProducto(
   ]);
 }
 
-async function obtenerMapaCodigosBarra(productIds: string[]): Promise<Map<string, string[]>> {
+async function obtenerMapaCodigosBarra(
+  productIds: string[],
+  signal?: AbortSignal
+): Promise<Map<string, string[]>> {
   const ids = Array.from(new Set(productIds.filter(Boolean)));
   const mapa = new Map<string, string[]>();
   const BATCH_SIZE = 200;
@@ -201,12 +218,20 @@ async function obtenerMapaCodigosBarra(productIds: string[]): Promise<Map<string
 
   // PostgREST/Supabase can return 400 when the generated `in (...)` filter grows too large.
   for (let index = 0; index < ids.length; index += BATCH_SIZE) {
+    throwIfRequestAborted(signal);
     const batchIds = ids.slice(index, index + BATCH_SIZE);
 
-    const { data, error } = await supabase
+    let barcodeQuery = supabase
       .from(TABLA_PRODUCTO_CODIGOS)
       .select('producto_id, codigo_barra')
       .in('producto_id', batchIds);
+
+    if (signal) {
+      barcodeQuery = barcodeQuery.abortSignal(signal);
+    }
+
+    const { data, error } = await barcodeQuery;
+    throwIfRequestAborted(signal);
 
     if (error) handleSupabaseError(error);
 
@@ -220,8 +245,14 @@ async function obtenerMapaCodigosBarra(productIds: string[]): Promise<Map<string
   return mapa;
 }
 
-async function adjuntarCodigosBarra(productos: Producto[]): Promise<Producto[]> {
-  const mapa = await obtenerMapaCodigosBarra(productos.map((producto) => producto.id));
+async function adjuntarCodigosBarra(
+  productos: Producto[],
+  signal?: AbortSignal
+): Promise<Producto[]> {
+  const mapa = await obtenerMapaCodigosBarra(
+    productos.map((producto) => producto.id),
+    signal
+  );
 
   return productos.map((producto) => {
     const codigos = fusionarCodigosProducto(producto, mapa.get(producto.id) || []);
@@ -292,73 +323,6 @@ async function sincronizarFilasCodigosBarra(productId: string, codigos: string[]
   }
 }
 
-async function obtenerProductosFiltradosBase(params: {
-  categoria?: string;
-  precio_min?: number;
-  precio_max?: number;
-  incluirEliminados?: boolean;
-}): Promise<Producto[]> {
-  const { categoria, precio_min, precio_max, incluirEliminados = false } = params;
-  const productos: Producto[] = [];
-  const BATCH_SIZE = 500;
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    let query = supabase.from(TABLA_PRODUCTOS).select('*');
-
-    if (!incluirEliminados) {
-      query = query.neq('estado', 'eliminado');
-    }
-    if (categoria) {
-      query = query.eq('categoria', categoria);
-    }
-    if (precio_min !== undefined) {
-      query = query.gte('precio_menor', precio_min);
-    }
-    if (precio_max !== undefined) {
-      query = query.lte('precio_menor', precio_max);
-    }
-
-    const { data, error } = await query
-      .order('nombre', { ascending: true })
-      .range(offset, offset + BATCH_SIZE - 1);
-
-    if (error) handleSupabaseError(error);
-
-    const lote = (data as Producto[]) || [];
-    productos.push(...lote);
-    hasMore = lote.length === BATCH_SIZE;
-    offset += BATCH_SIZE;
-  }
-
-  return productos;
-}
-
-function productoCoincideBusqueda(producto: Producto, query: string): boolean {
-  const cleanQuery = query.trim().toLowerCase();
-  if (!cleanQuery) return true;
-
-  const nombre = producto.nombre?.toLowerCase() || '';
-  const id = producto.id?.toLowerCase() || '';
-  const codigos = fusionarCodigosProducto(producto, []).map((codigo) => codigo.toLowerCase());
-
-  if (!cleanQuery.includes(' ')) {
-    return (
-      nombre.includes(cleanQuery) ||
-      id.includes(cleanQuery) ||
-      codigos.some((codigo) => codigo.includes(cleanQuery))
-    );
-  }
-
-  const tokens = cleanQuery.split(/\s+/).filter(Boolean);
-  return (
-    tokens.every((token) => nombre.includes(token)) ||
-    id === cleanQuery ||
-    codigos.some((codigo) => codigo === cleanQuery)
-  );
-}
-
 // API Service
 export const api = {
   // ==================== HEALTH CHECK ====================
@@ -383,26 +347,53 @@ export const api = {
     incluirEliminados?: boolean;
     limit?: number;
     offset?: number;
+    signal?: AbortSignal;
   } = {}): Promise<ProductosPaginados> {
-    const { query, categoria, precio_min, precio_max, incluirEliminados = false, limit = 50, offset = 0 } = params;
+    const {
+      query,
+      categoria,
+      precio_min,
+      precio_max,
+      incluirEliminados = false,
+      limit = 50,
+      offset = 0,
+      signal,
+    } = params;
+
+    throwIfRequestAborted(signal);
 
     if (query && query.trim()) {
-      const productosBase = await obtenerProductosFiltradosBase({
-        categoria,
-        precio_min,
-        precio_max,
-        incluirEliminados,
+      let searchQuery = supabase.rpc('buscar_productos_paginados', {
+        p_query: query,
+        p_categoria: categoria || null,
+        p_precio_min: precio_min ?? null,
+        p_precio_max: precio_max ?? null,
+        p_incluir_eliminados: incluirEliminados,
+        p_limit: limit,
+        p_offset: offset,
       });
-      const productosConCodigos = await adjuntarCodigosBarra(productosBase);
-      const filtrados = productosConCodigos.filter((producto) => productoCoincideBusqueda(producto, query));
-      const paginados = filtrados.slice(offset, offset + limit);
+
+      if (signal) {
+        searchQuery = searchQuery.abortSignal(signal);
+      }
+
+      const { data, error } = await searchQuery;
+      throwIfRequestAborted(signal);
+
+      if (error) handleSupabaseError(error);
+
+      const result = data as unknown as BuscarProductosPaginadosRpcResult | null;
+      const productos = (result?.productos || []).map((producto) => ({
+        ...producto,
+        codigos_barra: fusionarCodigosProducto(producto, producto.codigos_barra || []),
+      }));
 
       return {
-        total: filtrados.length,
+        total: Number(result?.total || 0),
         limit,
         offset,
-        count: paginados.length,
-        productos: paginados,
+        count: productos.length,
+        productos,
       };
     }
 
@@ -427,8 +418,12 @@ export const api = {
     };
 
     // Get Count
-    const countQuery = buildQuery(true);
+    let countQuery = buildQuery(true);
+    if (signal) {
+      countQuery = countQuery.abortSignal(signal);
+    }
     const { count, error: countError } = await countQuery;
+    throwIfRequestAborted(signal);
     if (countError) handleSupabaseError(countError);
 
     // Get Data
@@ -440,10 +435,15 @@ export const api = {
     // Pagination
     dataQuery = dataQuery.range(offset, offset + limit - 1);
 
+    if (signal) {
+      dataQuery = dataQuery.abortSignal(signal);
+    }
+
     const { data, error } = await dataQuery;
+    throwIfRequestAborted(signal);
     if (error) handleSupabaseError(error);
 
-    const productos = await adjuntarCodigosBarra((data as Producto[]) || []);
+    const productos = await adjuntarCodigosBarra((data as Producto[]) || [], signal);
 
     return {
       total: count || 0,

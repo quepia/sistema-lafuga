@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lafuga-precios": {
+      "type": "http",
+      "url": "${LAFUGA_MCP_BASE_URL}",
+      "headers": {
+        "Authorization": "Bearer ${LAFUGA_MCP_TOKEN}"
+      }
+    }
+  }
+}

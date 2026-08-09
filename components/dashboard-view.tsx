@@ -15,6 +15,15 @@ function isSaturday() {
   return new Date().getDay() === 6
 }
 
+function MetricErrorValue() {
+  return (
+    <div>
+      <p className="text-sm font-semibold text-destructive">No disponible</p>
+      <p className="mt-1 text-xs text-muted-foreground">Reintentá la carga</p>
+    </div>
+  )
+}
+
 export default function DashboardView() {
   const { estadisticas, loading, isValidating, error, refetch } = useEstadisticas()
   const [backupStatus, setBackupStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
@@ -50,28 +59,7 @@ export default function DashboardView() {
     }
   }
 
-  // Only show full error state if no cached data is available
-  if (error && !estadisticas) {
-    return (
-      <div className="space-y-6">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error de conexión</AlertTitle>
-          <AlertDescription>
-            {error}
-            <br />
-            <span className="text-sm mt-2 block">
-              Asegúrate de que el servidor backend esté corriendo correctamente
-            </span>
-          </AlertDescription>
-        </Alert>
-        <Button onClick={refetch} variant="outline" className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Reintentar conexión
-        </Button>
-      </div>
-    )
-  }
+  const metricsUnavailable = Boolean(error && !estadisticas)
 
   const cantidadCategorias = estadisticas
     ? Object.keys(estadisticas.productos_por_categoria).length
@@ -133,6 +121,22 @@ export default function DashboardView() {
         </div>
       </div>
 
+      {error && (
+        <Alert variant={metricsUnavailable ? "destructive" : "default"}>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>
+            {metricsUnavailable ? "No se pudieron cargar las métricas" : "No se pudieron actualizar las métricas"}
+          </AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>{error}</p>
+            <Button onClick={refetch} variant="outline" size="sm" className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Reintentar
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Metric Cards */}
       <div className="grid gap-3 sm:gap-6 grid-cols-2 lg:grid-cols-4">
         <Card className="border-l-4 border-l-[#006AC0]">
@@ -143,6 +147,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-9 w-24" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <>
                 <div className="text-3xl font-bold text-brand-dark">
@@ -162,6 +168,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-9 w-16" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <>
                 <div className="text-3xl font-bold text-[#FF1F8F]">
@@ -181,6 +189,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-9 w-16" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <>
                 <div className="text-3xl font-bold text-brand-dark">
@@ -200,6 +210,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-9 w-12" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <>
                 <div className="text-3xl font-bold text-brand-dark">{cantidadCategorias}</div>
@@ -219,6 +231,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-10 sm:h-12 w-24 sm:w-32" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <div className="text-2xl sm:text-4xl font-bold text-[#006AC0]">
                 ${estadisticas?.promedio_precio_menor.toLocaleString("es-AR", { maximumFractionDigits: 0 }) || "0"}
@@ -234,6 +248,8 @@ export default function DashboardView() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-10 sm:h-12 w-24 sm:w-32" />
+            ) : metricsUnavailable ? (
+              <MetricErrorValue />
             ) : (
               <div className="text-2xl sm:text-4xl font-bold text-[#FF1F8F]">
                 ${estadisticas?.promedio_precio_mayor.toLocaleString("es-AR", { maximumFractionDigits: 0 }) || "0"}
@@ -336,6 +352,14 @@ export default function DashboardView() {
               {[1, 2, 3, 4, 5].map((i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
+            </div>
+          ) : metricsUnavailable ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
+              <p className="font-medium text-destructive">No se pudo cargar el detalle por categoría.</p>
+              <Button onClick={refetch} variant="outline" size="sm" className="mt-3 gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Reintentar
+              </Button>
             </div>
           ) : (
             <div className="space-y-3">

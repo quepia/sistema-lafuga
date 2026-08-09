@@ -25,7 +25,7 @@ interface UseProductosSWRReturn {
  * SWR-based hook for fetching products with caching and stale-while-revalidate
  * - No refetch on tab focus (prevents UI hangs)
  * - Debounced search via SWR key
- * - Shows cached data immediately while revalidating
+ * - Keeps each search result associated with its own cache key
  * - Request timeout of 10 seconds
  */
 export function useProductosSWR({
@@ -47,7 +47,7 @@ export function useProductosSWR({
         })
     }, [query, categoria, incluirEliminados, limit, offset])
 
-    // Abort controller for timeout
+    // Abort controller for the request that is currently relevant to this view
     const abortControllerRef = useRef<AbortController | null>(null)
 
     // Cleanup on unmount
@@ -60,15 +60,18 @@ export function useProductosSWR({
     }, [])
 
     const fetcher = useCallback(async () => {
-        // Cancel previous request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
-        }
-        abortControllerRef.current = new AbortController()
+        // A response for an older key must not keep consuming work once a newer
+        // search starts. SWR also isolates responses by cacheKey.
+        abortControllerRef.current?.abort()
+
+        const controller = new AbortController()
+        abortControllerRef.current = controller
+        let timedOut = false
 
         // Create timeout
         const timeoutId = setTimeout(() => {
-            abortControllerRef.current?.abort()
+            timedOut = true
+            controller.abort()
         }, 10000) // 10 second timeout
 
         try {
@@ -78,15 +81,17 @@ export function useProductosSWR({
                 incluirEliminados,
                 limit,
                 offset,
+                signal: controller.signal,
             })
 
-            clearTimeout(timeoutId)
             return result
         } catch (err) {
-            clearTimeout(timeoutId)
-
             if (err instanceof Error && err.name === "AbortError") {
-                throw new Error("La solicitud tardó demasiado. Por favor, intenta de nuevo.")
+                if (timedOut) {
+                    throw new Error("La solicitud tardó demasiado. Por favor, intenta de nuevo.")
+                }
+
+                throw err
             }
 
             if (err instanceof ApiError) {
@@ -94,6 +99,11 @@ export function useProductosSWR({
             }
 
             throw new Error("Error al cargar productos")
+        } finally {
+            clearTimeout(timeoutId)
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null
+            }
         }
     }, [query, categoria, incluirEliminados, limit, offset])
 
@@ -105,12 +115,14 @@ export function useProductosSWR({
             revalidateOnFocus: false,
             // Don't revalidate on reconnect immediately
             revalidateOnReconnect: false,
-            // Keep previous data while revalidating
-            keepPreviousData: true,
+            // Search results for another term are misleading at the counter.
+            keepPreviousData: false,
             // Dedupe requests for 5 seconds
             dedupingInterval: 5000,
             // Retry once on error
             errorRetryCount: 1,
+            // A superseded search is intentionally aborted and must not retry.
+            shouldRetryOnError: (fetchError) => fetchError?.name !== "AbortError",
             // Don't revalidate automatically
             revalidateIfStale: false,
         }
@@ -123,8 +135,7 @@ export function useProductosSWR({
     return {
         productos: data?.productos ?? [],
         total: data?.total ?? 0,
-        // Only show loading spinner on initial load (no cached data)
-        loading: isLoading && !data,
+        loading: isLoading,
         isValidating,
         error: error?.message ?? null,
         refetch,

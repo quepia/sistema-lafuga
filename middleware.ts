@@ -16,6 +16,16 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
+    // The root route only performs Next.js' redirect to /dashboard. Avoid an
+    // unnecessary Supabase round trip before the protected request itself.
+    if (path === "/") {
+        return NextResponse.next({
+            request: {
+                headers: request.headers,
+            },
+        });
+    }
+
     let response = NextResponse.next({
         request: {
             headers: request.headers,
@@ -31,7 +41,7 @@ export async function middleware(request: NextRequest) {
                     return request.cookies.getAll();
                 },
                 setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) =>
+                    cookiesToSet.forEach(({ name, value }) =>
                         request.cookies.set(name, value)
                     );
                     response = NextResponse.next({
@@ -96,6 +106,6 @@ export const config = {
          * - public folder
          * - auth/callback (important for OAuth)
          */
-        "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+        "/((?!_next/static|_next/image|favicon.ico|manifest\\.(?:json|webmanifest)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
     ],
 };

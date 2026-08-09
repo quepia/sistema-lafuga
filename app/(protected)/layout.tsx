@@ -1,15 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { ArrowLeft, Menu, ShoppingCart, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Sidebar from "@/components/sidebar"
 import { useAuth } from "@/contexts/auth-context"
 import { SWRProvider } from "@/components/swr-provider"
 import { cn } from "@/lib/utils"
+import { AppStartupScreen } from "@/components/app-startup-screen"
 
 export default function ProtectedLayout({
   children,
@@ -18,8 +19,27 @@ export default function ProtectedLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const pathname = usePathname()
-  const { user } = useAuth()
+  const router = useRouter()
+  const { user, loading, error, retry } = useAuth()
   const isSimpleSalesMode = pathname.startsWith("/ventas/simple")
+
+  useEffect(() => {
+    if (!loading && !error && !user) {
+      router.replace("/login")
+    }
+  }, [error, loading, router, user])
+
+  if (loading) {
+    return <AppStartupScreen message="Recuperando tu sesión..." />
+  }
+
+  if (error) {
+    return <AppStartupScreen error={error} onRetry={() => void retry()} />
+  }
+
+  if (!user) {
+    return <AppStartupScreen message="Redirigiendo al inicio de sesión..." />
+  }
 
   return (
     <SWRProvider>

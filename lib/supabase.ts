@@ -4,6 +4,7 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const AUTH_REQUEST_TIMEOUT_MS = 10000;
 
 // Verificación de variables de entorno con logging en desarrollo
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -29,17 +30,51 @@ if (process.env.NODE_ENV === 'development') {
   console.log('✅ [Supabase] Cliente inicializado correctamente (SSR/Cookie)');
 }
 
-// Use createBrowserClient for client-side usage (shares cookies with middleware/auth)
-// Explicit auth config to ensure proper session handling on tab focus/wake
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    flowType: 'pkce',
-    // Reduce storage events to prevent redundant auth state changes
-    storageKey: 'la-fuga-auth',
+const nativeFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+/**
+ * Auth refreshes must not retain Supabase's exclusive session lock forever.
+ * Data requests keep their native behavior; only /auth/v1 requests receive
+ * a hard network timeout.
+ */
+const fetchWithAuthTimeout: typeof fetch = async (input, init) => {
+  const url =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+
+  if (!url.includes('/auth/v1/')) {
+    return nativeFetch(input, init);
   }
+
+  const controller = new AbortController();
+  const upstreamSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  const abortFromUpstream = () => controller.abort();
+
+  if (upstreamSignal?.aborted) {
+    controller.abort();
+  } else {
+    upstreamSignal?.addEventListener('abort', abortFromUpstream, { once: true });
+  }
+
+  const timeoutId = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await nativeFetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream);
+  }
+};
+
+// One browser client, using @supabase/ssr's default cookie/storage configuration.
+// This keeps Auth, middleware and all data queries on the same session.
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  global: {
+    fetch: fetchWithAuthTimeout,
+  },
 });
 
 /**

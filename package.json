@@ -6,6 +6,9 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
+    "mcp:create-token": "node --no-warnings --experimental-strip-types ./scripts/create-mcp-token.ts",
+    "mcp:revoke-token": "node --no-warnings --experimental-strip-types ./scripts/revoke-mcp-token.ts",
+    "mcp:start": "node --no-warnings --experimental-strip-types ./mcp/server.ts",
     "start": "next start"
   },
   "dependencies": {
@@ -46,9 +49,11 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
+    "cors": "^2.8.6",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.1",
     "exceljs": "^4.4.0",
+    "express": "^5.2.1",
     "googleapis": "^170.1.0",
     "html2pdf.js": "^0.14.0",
     "input-otp": "1.4.1",
@@ -75,6 +80,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
     "@tailwindcss/postcss": "^4.1.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19",

@@ -1,7 +1,50 @@
 "use client"
 
 import useSWR from "swr"
-import { api, Estadisticas, ApiError } from "@/lib/api"
+import type { Estadisticas } from "@/lib/api"
+
+const REQUEST_TIMEOUT_MS = 10000
+
+function isEstadisticas(value: unknown): value is Estadisticas {
+  if (!value || typeof value !== "object") return false
+
+  const estadisticas = value as Partial<Estadisticas>
+  return (
+    typeof estadisticas.total_productos === "number" &&
+    typeof estadisticas.productos_por_categoria === "object" &&
+    estadisticas.productos_por_categoria !== null &&
+    typeof estadisticas.productos_sin_precio === "number" &&
+    typeof estadisticas.productos_sin_codigo_barra === "number" &&
+    typeof estadisticas.promedio_precio_menor === "number" &&
+    typeof estadisticas.promedio_precio_mayor === "number" &&
+    typeof estadisticas.promedio_costo === "number"
+  )
+}
+
+async function fetchEstadisticas(signal: AbortSignal): Promise<Estadisticas> {
+  const response = await fetch("/api/dashboard-metrics", {
+    method: "GET",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal,
+  })
+
+  const body: unknown = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error
+        : "No se pudieron cargar las métricas."
+    throw new Error(message)
+  }
+
+  if (!isEstadisticas(body)) {
+    throw new Error("El servidor devolvió métricas inválidas.")
+  }
+
+  return body
+}
 
 interface UseEstadisticasReturn {
   estadisticas: Estadisticas | null
@@ -19,15 +62,28 @@ interface UseEstadisticasReturn {
  */
 export function useEstadisticas(): UseEstadisticasReturn {
   const { data, error, isLoading, isValidating, mutate } = useSWR<Estadisticas>(
-    "estadisticas",
+    "estadisticas-dashboard-v2",
     async () => {
+      const controller = new AbortController()
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+
       try {
-        return await api.obtenerEstadisticas()
+        return await Promise.race([
+          fetchEstadisticas(controller.signal),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              reject(new Error("Las métricas tardaron demasiado en responder."))
+              controller.abort()
+            }, REQUEST_TIMEOUT_MS)
+          }),
+        ])
       } catch (err) {
-        if (err instanceof ApiError) {
-          throw new Error(err.message)
+        if (err instanceof Error && err.message) {
+          throw err
         }
-        throw new Error("Error al cargar estadísticas")
+        throw new Error("Error al cargar las métricas.")
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
       }
     },
     {
@@ -46,7 +102,7 @@ export function useEstadisticas(): UseEstadisticasReturn {
 
   return {
     estadisticas: data ?? null,
-    // Only show loading on initial load (no cached data)
+    // La consulta tiene un límite explícito: nunca queda cargando para siempre.
     loading: isLoading && !data,
     // Indicates background revalidation in progress
     isValidating,

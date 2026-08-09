@@ -6,10 +6,10 @@ import Image from "next/image"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
-import { Loader2 } from "lucide-react"
+import { AppStartupScreen } from "@/components/app-startup-screen"
 
 export default function LoginPage() {
-  const { user, loading, login } = useAuth()
+  const { user, loading, error, retry, login } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -20,11 +20,11 @@ export default function LoginPage() {
   }, [user, loading, router])
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#006AC0] to-[#FF1F8F]">
-        <Loader2 className="h-8 w-8 animate-spin text-white" />
-      </div>
-    )
+    return <AppStartupScreen message="Comprobando tu sesión..." />
+  }
+
+  if (error) {
+    return <AppStartupScreen error={error} onRetry={() => void retry()} />
   }
 
   return (
