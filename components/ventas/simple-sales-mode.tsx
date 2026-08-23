@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/auth-context"
 import { api, Producto, VentaProductoExtendido } from "@/lib/api"
+import { normalizeSearchText } from "@/lib/search-utils"
 import { PrintFormat, PrintOptionsDialog } from "@/components/PrintOptionsDialog"
 
 const TicketPrint = dynamic(() => import("@/components/ticket-print"), { ssr: false })
@@ -109,12 +110,17 @@ function normalizeQuantity(producto: Producto, value: number) {
 }
 
 function findExactMatch(productos: Producto[], query: string) {
-  const normalizedQuery = query.trim().toLowerCase()
+  const normalizedQuery = normalizeSearchText(query)
 
   return (
-    productos.find((producto) => producto.codigo_barra?.trim().toLowerCase() === normalizedQuery) ||
-    productos.find((producto) => producto.id.trim().toLowerCase() === normalizedQuery) ||
-    productos.find((producto) => producto.nombre.trim().toLowerCase() === normalizedQuery)
+    productos.find((producto) =>
+      producto.codigos_barra?.some(
+        (codigo) => normalizeSearchText(codigo) === normalizedQuery
+      )
+    ) ||
+    productos.find((producto) => normalizeSearchText(producto.codigo_barra ?? "") === normalizedQuery) ||
+    productos.find((producto) => normalizeSearchText(producto.id) === normalizedQuery) ||
+    productos.find((producto) => normalizeSearchText(producto.nombre) === normalizedQuery)
   )
 }
 

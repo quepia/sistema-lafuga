@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { api, Producto } from "@/lib/api"
+import { normalizeSearchText, searchTextIncludes } from "@/lib/search-utils"
 import { useZxing } from "react-zxing";
 
 export default function EscanerPage() {
@@ -140,11 +141,12 @@ export default function EscanerPage() {
   const productosFiltrados = (activeTab === "sin-codigo" ? productosSinCodigo : productos)
     .filter(p => {
       if (!searchQuery) return true
-      const query = searchQuery.toLowerCase()
-      return (
-        (p.nombre && p.nombre.toLowerCase().includes(query)) ||
-        (p.id && p.id.toLowerCase().includes(query)) ||
-        getCodigosProducto(p).some((codigo) => codigo.toLowerCase().includes(query))
+      const query = normalizeSearchText(searchQuery)
+      if (!query) return true
+
+      return searchTextIncludes(
+        [p.nombre, p.id, p.categoria, ...getCodigosProducto(p)].filter(Boolean).join(" "),
+        query
       )
     })
 

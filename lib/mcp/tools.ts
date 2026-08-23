@@ -115,7 +115,7 @@ async function logHistorial(
 const buscarProducto: ToolDefinition = {
   name: "buscar_producto",
   description:
-    "Busca productos por nombre, categoría o código de barras (coincidencia parcial, case-insensitive). Usalo cuando el usuario nombra un producto pero no sabe el ID exacto.",
+    "Busca productos por nombre, categoría o código de barras. Ignora tildes, mayúsculas, signos y el orden de las palabras. Usalo cuando el usuario nombra un producto pero no sabe el ID exacto.",
   inputSchema: {
     type: "object",
     properties: {
@@ -129,15 +129,25 @@ const buscarProducto: ToolDefinition = {
   handler: async (args) => {
     const { query, limit } = buscarSchema.parse(args);
     const supabase = getMcpAdminClient();
-    const term = `%${query.replace(/[%_]/g, (m) => `\\${m}`)}%`;
     const { data, error } = await supabase
-      .from("productos")
-      .select(PRODUCT_FIELDS)
-      .or(`nombre.ilike.${term},categoria.ilike.${term},codigo_barra.ilike.${term},id.ilike.${term}`)
-      .neq("estado", "eliminado")
-      .limit(limit);
+      .rpc("buscar_productos_paginados", {
+        p_query: query,
+        p_categoria: null,
+        p_precio_min: null,
+        p_precio_max: null,
+        p_incluir_eliminados: false,
+        p_limit: limit,
+        p_offset: 0,
+      });
+
     if (error) return fail(`Error consultando productos: ${error.message}`);
-    return ok({ count: data?.length ?? 0, productos: data ?? [] });
+
+    const result = data as { total?: number; productos?: unknown[] } | null;
+    return ok({
+      count: result?.productos?.length ?? 0,
+      total: Number(result?.total ?? 0),
+      productos: result?.productos ?? [],
+    });
   },
 };
 
